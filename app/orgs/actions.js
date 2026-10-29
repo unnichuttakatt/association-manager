@@ -9,23 +9,35 @@ const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
 
 // Records one year's renewal and the matching Cash in entry (Membership fee). Does nothing if that year is already renewed.
-async function doRenew(org, memberId, name, year, amount) {
+async function doRenew(org, memberId, name, year, amount, date) {
   const done = (await sql`SELECT id FROM org_renewals WHERE member_id = ${memberId} AND year = ${year}`)[0];
   if (done) return false;
   const cash = (await sql`INSERT INTO org_cash (tx_date, org, kind, category, amount, currency, party, ref)
-    VALUES (${today()}, ${org}, 'in', 'Membership fee', ${amount}, 'AED', ${name}, ${'Renewal ' + year}) RETURNING id`)[0];
-  await sql`INSERT INTO org_renewals (member_id, org, year, amount, paid_on, cash_id) VALUES (${memberId}, ${org}, ${year}, ${amount}, ${today()}, ${cash.id})`;
+    VALUES (${date || today()}, ${org}, 'in', 'Membership fee', ${amount}, 'AED', ${name}, ${'Renewal ' + year}) RETURNING id`)[0];
+  await sql`INSERT INTO org_renewals (member_id, org, year, amount, paid_on, cash_id) VALUES (${memberId}, ${org}, ${year}, ${amount}, ${date || today()}, ${cash.id})`;
   return true;
 }
 const feeOf = async (org) => Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50);
 const yr = (v) => { const y = Number(v); return y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
 
-export async function renewMember(fd) {
+// Finance: receive a member's renewal fee on a chosen date. Records the renewal and a Cash in (Membership fee) entry.
+export async function receiveFee(fd) {
   await requireAdmin(); await ensureSchema();
-  const id = Number(fd.get('id')); const year = yr(fd.get('year'));
+  const id = Number(fd.get('member')); const year = yr(fd.get('year'));
   const m = (await sql`SELECT id, org, name FROM org_members WHERE id = ${id}`)[0];
   if (!m) return;
-  await doRenew(m.org, m.id, m.name, year, await feeOf(m.org));
+  const d = String(fd.get('tx_date') || '');
+  const amt = Math.round(Math.max(0, Number(fd.get('amount')) || 0) * 100) / 100 || await feeOf(m.org);
+  await doRenew(m.org, m.id, m.name, year, amt, isDate(d) ? d : today());
+  revalidatePath('/orgs');
+}
+export async function updateMember(fd) {
+  await requireAdmin(); await ensureSchema();
+  const id = Number(fd.get('id')); const name = String(fd.get('name') || '').trim().slice(0, 120);
+  if (!id || !name) return;
+  const j = String(fd.get('joined') || '');
+  const t = (k, n) => String(fd.get(k) || '').trim().slice(0, n);
+  await sql`UPDATE org_members SET name=${name}, phone=${t('phone', 40)}, member_no=${t('member_no', 40)}, place=${t('place', 120)}, joined=${isDate(j) ? j : null}, status=${t('status', 40)} WHERE id=${id}`;
   revalidatePath('/orgs');
 }
 export async function undoRenewal(fd) {

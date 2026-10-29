@@ -10,7 +10,7 @@ import Supplier from './Supplier';
 import Kind from './Kind';
 import MemberImport from './MemberImport';
 import ReportActions from './ReportActions';
-import { renewMember, undoRenewal, setFee, setOpening } from './actions';
+import { receiveFee, undoRenewal, setFee, setOpening, updateMember } from './actions';
 import { IN_CATS, OUT_CATS } from './cats';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,15 @@ const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 const dt = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${+m[3]} ${monthName(getLang(), +m[2] - 1)} ${m[1]}` : s || ''; };
 const money = (n, cur) => `${n < 0 ? '−' : ''}${cur === 'AED' ? 'AED ' : '₹'}${fmt(Math.abs(n))}`;
 const cur2 = (r) => (r.currency === 'INR' ? 'INR' : 'AED');
+const waLink = (phone, text) => {
+  let d = String(phone || '').replace(/[^\d+]/g, '');
+  const plus = d.startsWith('+'); d = d.replace(/\D/g, '');
+  if (!d) return '';
+  if (!plus) { if (d.startsWith('00')) d = d.slice(2); else if (d.length === 10 && d.startsWith('0')) d = '971' + d.slice(1); else if (d.length === 9 && d.startsWith('5')) d = '971' + d; }
+  return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;
+};
+const initials = (n) => String(n).trim().split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
+const hue = (n) => { let h = 0; for (const ch of String(n)) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
 const signed = (r) => (r.kind === 'in' ? 1 : -1) * num(r.amount);
 const byCur = (rows, f) => { const t = {}; for (const r of rows) t[cur2(r)] = (t[cur2(r)] || 0) + f(r); return t; };
 const txt = (t) => Object.entries(t).filter(([, v]) => v !== 0).map(([c, v]) => money(v, c)).join(' + ') || 'AED 0';
@@ -138,6 +147,8 @@ export default async function Orgs({ searchParams }) {
   const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
     : [];
   const shown = members.filter((m) => (!q || [m.name, m.phone, m.member_no, m.place].some((v) => String(v).toLowerCase().includes(q))) && (!rf || (rf === 'yes') === !!renewals[m.id]));
+  const pendingMembers = members.filter((m) => !renewals[m.id]);
+  const paidMembers = members.filter((m) => renewals[m.id]);
   const nRen = members.filter((m) => renewals[m.id]).length;
   const collected = Object.values(renewals).reduce((a, x) => a + num(x.amount), 0);
   const mlink = (o) => `/orgs?${new URLSearchParams({ o, y: String(year), ...(rf ? { r: rf } : {}), ...(sp.q ? { q: sp.q } : {}) })}`;
@@ -165,6 +176,37 @@ export default async function Orgs({ searchParams }) {
       </div>}
 
       {org && tab === 'finance' && (
+        <details className="card fold" style={{ '--c': c }} open={pendingMembers.length > 0 || undefined}>
+          <summary className="card-sum"><h2>{T('Membership fee payment')}</h2><span className="count">{pendingMembers.length} {T('due')}</span><span className="chev" aria-hidden="true" /></summary>
+          <p className="sum">{T('Receive a member\'s renewal fee. It is recorded as Cash in (Membership fee) on the date you choose and the member shows as renewed.')}</p>
+          {pendingMembers.length === 0 ? <p className="empty">{T('Everyone has renewed for this year.')}</p> : (
+            <form action={receiveFee} className="row">
+              <label className="f"><span>{T('Member')}</span>
+                <select name="member" required defaultValue=""><option value="" disabled>{T('Select member')}</option>{pendingMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+              <label className="f"><span>{T('Renewal year')}</span><input name="year" type="number" defaultValue={year} min="2000" max="2100" /></label>
+              <label className="f"><span>{T('Date')}</span><input name="tx_date" type="date" defaultValue={today()} required /></label>
+              <label className="f"><span>{T('Amount')} (AED)</span><input name="amount" type="number" step="any" min="0" defaultValue={fee} required /></label>
+              <button className="p">{T('Receive fee')}</button>
+            </form>
+          )}
+          <form action={setFee} className="row" style={{ marginTop: 10 }}>
+            <input type="hidden" name="org" value={org} />
+            <label className="f"><span>{T('Renewal fee per member (AED)')}</span><input name="fee" type="number" step="any" min="0" defaultValue={fee} /></label>
+            <button className="p">{T('Save fee')}</button>
+          </form>
+          {paidMembers.length > 0 && (
+            <>
+              <h3 style={{ margin: '14px 0 6px', fontSize: '1rem' }}>{T('Received for {y}', { y: year })} ({paidMembers.length})</h3>
+              <div className="scroll"><table><tbody>{paidMembers.map((m) => (
+                <tr key={m.id}><td>{m.name}</td><td>{dt(renewals[m.id].paid_on)}</td><td>{money(num(renewals[m.id].amount), 'AED')}</td>
+                  <td><form action={undoRenewal}><input type="hidden" name="id" value={m.id} /><input type="hidden" name="year" value={year} /><button className="doc">{T('Undo')}</button></form></td></tr>
+              ))}</tbody></table></div>
+            </>
+          )}
+        </details>
+      )}
+
+      {org && tab === 'finance' && (
         <details className="card fold" style={{ '--c': c }}>
           <summary className="card-sum"><h2>{T('Opening balance')}</h2>{opening && <span className="count">{money(num(opening.amount), cur2(opening))}</span>}<span className="chev" aria-hidden="true" /></summary>
           <p className="sum">{T('Cash in hand on the date you choose. It is the starting point and is not counted as cash in. Saving again replaces it; save with an empty amount to remove it.')}</p>
@@ -182,6 +224,7 @@ export default async function Orgs({ searchParams }) {
         <details className="card fold" style={{ '--c': c }} open>
           <summary className="card-sum"><h2>{T('Members')}</h2><span className="count">{counts[org] || 0}</span><span className="chev" aria-hidden="true" /></summary>
           <p className="sum">{T('Upload an Excel or CSV list. The first row should have column names such as Name, Phone, Member no., Place, Joined, Status. Members already in the list (same member no., or same name and phone) are updated, not added twice.')}</p>
+          <details className="mem-add"><summary className="doc">＋ {T('Add or upload members')}</summary>
           <MemberImport org={org} labels={{ year: T('Renewal year (for a Renewed column)'), ren: T('{n} marked renewed for {y}.'), file: T('Excel or CSV file (max 4 MB)'), btn: T('Upload members'), done: T('{a} members added, {u} updated.') }} />
           <form action={addMember} className="row" style={{ marginTop: 10 }}>
             <input type="hidden" name="org" value={org} />
@@ -193,9 +236,11 @@ export default async function Orgs({ searchParams }) {
             <label className="f"><span>{T('Status')}</span><input name="status" maxLength={40} /></label>
             <button className="p">{T('Add member')}</button>
           </form>
+          </details>
           <div className="pur-sum" style={{ marginTop: 12 }}>
             <div className="ds in"><span>{T('Renewed {y}', { y: year })}</span><b>{nRen} / {members.length}</b></div>
             <div className={`ds ${members.length - nRen > 0 ? 'out' : 'in'}`}><span>{T('Not renewed')}</span><b>{members.length - nRen}</b></div>
+            <div className={`ds ${members.length - nRen > 0 ? 'out' : 'in'}`}><span>{T('Dues pending')}</span><b>{money((members.length - nRen) * fee, 'AED')}</b></div>
             <div className="ds in"><span>{T('Renewal income {y}', { y: year })}</span><b>{money(collected, 'AED')}</b></div>
           </div>
           <div className="pur-filter">
@@ -205,11 +250,6 @@ export default async function Orgs({ searchParams }) {
             <span className="sep" aria-hidden="true" />
             {[['', T('All')], ['yes', T('Renewed')], ['no', T('Not renewed')]].map(([k, l]) => <Link key={k} href={`/orgs?${new URLSearchParams({ o: org, t: 'members', y: String(year), ...(k ? { r: k } : {}) })}`} className={`chipf ${rf === k ? 'on' : ''}`}>{l}</Link>)}
           </div>
-          <form action={setFee} className="row">
-            <input type="hidden" name="org" value={org} />
-            <label className="f"><span>{T('Renewal fee per member (AED)')}</span><input name="fee" type="number" step="any" min="0" defaultValue={fee} /></label>
-            <button className="p">{T('Save fee')}</button>
-          </form>
           <form method="get" className="row" style={{ marginTop: 10 }}>
             <input type="hidden" name="o" value={org} /><input type="hidden" name="t" value="members" /><input type="hidden" name="y" value={year} />{rf && <input type="hidden" name="r" value={rf} />}
             <label className="f"><span>{T('Search members')}</span><input name="q" defaultValue={sp.q || ''} /></label>
@@ -217,14 +257,41 @@ export default async function Orgs({ searchParams }) {
           </form>
           {shown.length === 0 && <p className="empty">{(counts[org] || 0) ? T('Nothing matches this filter.') : T('No members yet.')}</p>}
           {shown.length > 0 && (
-            <div className="scroll"><table>
-              <thead><tr><th>{T('Name')}</th><th>{T('Phone')}</th><th>{T('Member no.')}</th><th>{T('Place')}</th><th>{T('Joined')}</th><th>{T('Status')}</th><th>{T('Renewal')} {year}</th><th></th></tr></thead>
-              <tbody>{shown.map((m) => (
-                <tr key={m.id}><td>{m.name}</td><td>{m.phone}</td><td>{m.member_no}</td><td>{m.place}</td><td>{m.joined ? dt(m.joined) : ''}</td><td>{m.status}</td>
-                  <td>{renewals[m.id] ? <form action={undoRenewal} className="pay"><input type="hidden" name="id" value={m.id} /><input type="hidden" name="year" value={year} /><span className="pst paid">{T('Renewed')} {dt(renewals[m.id].paid_on)}</span> <button className="doc">{T('Undo')}</button></form> : <form action={renewMember}><input type="hidden" name="id" value={m.id} /><input type="hidden" name="year" value={year} /><button className="p">{T('Renew')} · {money(fee, 'AED')}</button></form>}</td>
-                  <td><form action={delMember}><input type="hidden" name="id" value={m.id} /><button className="doc danger">{T('Delete')}</button></form></td></tr>
-              ))}</tbody>
-            </table></div>
+            <div className="mem-grid">
+              {shown.map((m) => {
+                const r = renewals[m.id];
+                const msg = T('Hello {name}, a gentle reminder from {org}: your {y} membership renewal fee of AED {fee} is still pending. Please pay at your earliest convenience. Thank you.', { name: m.name, org, y: year, fee: fmt(fee) });
+                const wa = waLink(m.phone, msg);
+                return (
+                  <div className={`mem ${r ? 'ok' : 'due'}`} key={m.id}>
+                    <div className="mem-top">
+                      <span className="avatar" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>
+                      <div className="mem-id"><b>{m.name}</b>
+                        <small>{[m.member_no && `#${m.member_no}`, m.place, m.status].filter(Boolean).join(' · ') || '\u00a0'}</small></div>
+                    </div>
+                    <div className="mem-mid">
+                      <span className="mem-ph">{m.phone ? `📞 ${m.phone}` : <i>{T('No phone yet')}</i>}</span>
+                      {r ? <span className="pst paid">✔ {T('Renewed')} {dt(r.paid_on)}</span> : <span className="pst unpaid">{T('Due')} {money(fee, 'AED')}</span>}
+                    </div>
+                    <div className="mem-act">
+                      {!r && (wa ? <a className="wa" href={wa} target="_blank" rel="noreferrer">💬 {T('WhatsApp reminder')}</a> : <span className="wa off" title={T('Add a phone number first')}>💬 {T('WhatsApp reminder')}</span>)}
+                      <details className="mem-edit"><summary className="doc">{T('Edit')}</summary>
+                        <form action={updateMember} className="row"><input type="hidden" name="id" value={m.id} />
+                          <label className="f"><span>{T('Name')}</span><input name="name" defaultValue={m.name} required maxLength={120} /></label>
+                          <label className="f"><span>{T('Phone')}</span><input name="phone" defaultValue={m.phone} maxLength={40} inputMode="tel" placeholder="05XXXXXXXX / +971…" /></label>
+                          <label className="f"><span>{T('Member no.')}</span><input name="member_no" defaultValue={m.member_no} maxLength={40} /></label>
+                          <label className="f"><span>{T('Place')}</span><input name="place" defaultValue={m.place} maxLength={120} /></label>
+                          <label className="f"><span>{T('Joined')}</span><input name="joined" type="date" defaultValue={m.joined || ''} /></label>
+                          <label className="f"><span>{T('Status')}</span><input name="status" defaultValue={m.status} maxLength={40} /></label>
+                          <button className="p">{T('Save changes')}</button>
+                        </form>
+                        <form action={delMember}><input type="hidden" name="id" value={m.id} /><button className="doc danger">{T('Delete')}</button></form>
+                      </details>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </details>
       )}
@@ -285,8 +352,8 @@ export default async function Orgs({ searchParams }) {
             ))}
             {rf !== 'yes' && <h3>⏳ {T('Not renewed')} ({pend.length})</h3>}
             {rf !== 'yes' && (pend.length === 0 ? <p className="empty">{T('Everyone has renewed.')}</p> : (
-              <div className="scroll"><table><thead><tr><th>#</th><th>{T('Name')}</th><th>{T('Phone')}</th></tr></thead>
-                <tbody>{pend.map((m, i) => <tr key={m.id}><td>{i + 1}</td><td>{m.name}</td><td>{m.phone}</td></tr>)}</tbody></table></div>
+              <div className="scroll"><table><thead><tr><th>#</th><th>{T('Name')}</th><th>{T('Phone')}</th><th className="noprint"></th></tr></thead>
+                <tbody>{pend.map((m, i) => { const w = waLink(m.phone, T('Hello {name}, a gentle reminder from {org}: your {y} membership renewal fee of AED {fee} is still pending. Please pay at your earliest convenience. Thank you.', { name: m.name, org, y: year, fee: fmt(fee) })); return <tr key={m.id}><td>{i + 1}</td><td>{m.name}</td><td>{m.phone}</td><td className="noprint">{w ? <a className="wa" href={w} target="_blank" rel="noreferrer">💬 WhatsApp</a> : ''}</td></tr>; })}</tbody></table></div>
             ))}
           </div>
         );

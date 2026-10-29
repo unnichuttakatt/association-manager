@@ -526,3 +526,17 @@ html[lang=ml] .sq-own{font-size:13.5px}
 .chip.who{font-weight:600}
 @media print{header,nav,.tabbar,.noprint,.lang,.dtab{display:none!important}body{background:#fff!important}.report{box-shadow:none!important;border:0!important}.report h3{margin-top:14px}}
 .report h3{margin:16px 0 6px;font-size:1rem}
+
+.mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px}
+.mem{background:#fff;border:1px solid var(--line);border-left:5px solid var(--good);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,61,70,.06)}
+.mem.due{border-left-color:var(--bad)}
+.mem-top{display:flex;gap:12px;align-items:center}
+.avatar{flex:none;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font:700 15px var(--display);color:#fff;background:hsl(var(--h) 45% 38%)}
+.mem-id{min-width:0}.mem-id b{display:block;font-size:15.5px;overflow-wrap:anywhere}.mem-id small{color:var(--muted)}
+.mem-mid{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+.mem-ph{font-size:14px;color:var(--ink)}.mem-ph i{color:var(--muted)}
+.mem-act{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.wa{display:inline-block;background:#25D366;color:#073B1B;font-weight:700;font-size:13.5px;padding:7px 12px;border-radius:99px;text-decoration:none}
+.wa:hover{filter:brightness(.95)}.wa.off{background:#E5E7EB;color:#6B7280;cursor:not-allowed}
+.mem-edit{flex:1 1 100%}.mem-edit summary{cursor:pointer;display:inline-block}.mem-edit>form{margin-top:10px}
+.mem-add{margin:10px 0}.mem-add summary{cursor:pointer;display:inline-block}
