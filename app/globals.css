@@ -626,3 +626,9 @@ html[lang=ml] .sq-own{font-size:13.5px}
 .cattbl{width:100%}.cattbl .num{text-align:right;white-space:nowrap}
 .cattbl tfoot td{font-weight:800;border-top:2px solid var(--ink)}
 .cattbl tfoot .tin td:nth-child(2){color:var(--good)}.cattbl tfoot .tout td:nth-child(2){color:var(--bad)}
+
+.dues{width:100%;margin:2px 0 10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--mist);display:grid;gap:8px}
+.due-row{display:flex;align-items:center;gap:12px;margin:0;padding:12px;min-height:50px;background:#fff;border:2px solid var(--line);border-radius:10px;cursor:pointer;font-size:16px;color:var(--ink)}
+.due-row.on{border-color:var(--good);background:#ECFDF3}
+.due-row input{width:24px;height:24px;min-height:0;margin:0;accent-color:var(--good)}
+.due-row span{flex:1}.due-row em{font-style:normal;font-size:12.5px;color:var(--bad);font-weight:700}.due-row.on em{color:var(--good);font-size:18px}

@@ -10,7 +10,7 @@ import Supplier from './Supplier';
 import Kind from './Kind';
 import MemberImport from './MemberImport';
 import ReportActions from './ReportActions';
-import { receiveFee, undoRenewal, setFee, setOpening, updateMember, setLogo } from './actions';
+import { payDues, receiveFee, undoRenewal, setFee, setOpening, updateMember, setLogo } from './actions';
 import PhotoPick from './PhotoPick';
 import { IN_CATS, OUT_CATS } from './cats';
 
@@ -51,10 +51,10 @@ function clean(fd) {
   };
 }
 
-function Fields({ r = {}, L, orgs, more, names = [] }) {
+function Fields({ r = {}, L, orgs, more, names = [], fee = 0, years = [] }) {
   return (
     <>
-      <Kind kind={r.kind || 'in'} category={r.category || ''} labels={{ ...L, member: L.member || L.party, typeName: L.typeName }} party={r.party || ''} members={names} />
+      <Kind kind={r.kind || 'in'} category={r.category || ''} labels={{ ...L, member: L.member || L.party, typeName: L.typeName }} party={r.party || ''} members={names} fee={fee} years={years} />
       <div className="amt-row">
         <label className="f amt"><span>{L.amount}</span><input name="amount" type="number" step="any" min="0" inputMode="decimal" placeholder="0.00" defaultValue={r.amount != null ? String(num(r.amount)) : ''} required /></label>
         <label className="f cur"><span>{L.currency}</span>
@@ -79,6 +79,7 @@ export default async function Orgs({ searchParams }) {
     'use server';
     await requireAdmin(); await ensureSchema();
     const v = clean(fd);
+    if (v.kind === 'in' && v.category === 'Membership fee' && fd.get('member_id') && fd.getAll('pay_year').length) { if (await payDues(fd)) return; }
     if (!v.org || !(v.amount > 0)) return;
     await sql`INSERT INTO orgs (name) VALUES (${v.org}) ON CONFLICT (name) DO NOTHING`;
     await sql`INSERT INTO org_cash (tx_date, org, kind, category, amount, currency, party, ref, notes)
@@ -150,6 +151,10 @@ export default async function Orgs({ searchParams }) {
   const renewals = org ? Object.fromEntries((await sql`SELECT member_id, to_char(paid_on,'YYYY-MM-DD') AS paid_on, amount FROM org_renewals WHERE org = ${org} AND year = ${year}`).map((x) => [x.member_id, x])) : {};
   const orgLogo = org ? ((await sql`SELECT logo FROM orgs WHERE name = ${org}`)[0]?.logo || '') : '';
   const PL = { choose: T('Choose picture'), change: T('Change picture'), remove: T('Remove') };
+  const dueYears = [new Date().getFullYear(), new Date().getFullYear() - 1];
+  const paidMap = {};
+  if (org) for (const x of await sql`SELECT member_id, year FROM org_renewals WHERE org = ${org}`) (paidMap[x.member_id] = paidMap[x.member_id] || []).push(x.year);
+  const memberInfo = org ? (await sql`SELECT id, name FROM org_members WHERE org = ${org} ORDER BY lower(name)`).map((x) => ({ id: x.id, name: x.name, paid: paidMap[x.id] || [] })) : [];
   const memberNames = (org ? await sql`SELECT DISTINCT name FROM org_members WHERE org = ${org} ORDER BY name` : await sql`SELECT DISTINCT name FROM org_members ORDER BY name`).map((x) => x.name);
   const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes, blood_group, photo FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
     : [];
@@ -162,7 +167,7 @@ export default async function Orgs({ searchParams }) {
   const L = {
     date: T('Date'), org: T('Organisation'), pickOrg: T('Select organisation'), addOrg: T('Add new organisation'), newOrg: T('New organisation name'),
     kind: T('Cash in or out'), in: T('Cash in'), out: T('Cash out'), category: T('Category'), amount: T('Amount'), currency: T('Currency'),
-    party: T('Received from / paid to'), member: T('Member name'), typeName: T('Type 2 letters of the name'), ref: T('Receipt / voucher no. (optional)'), notes: T('Notes'),
+    party: T('Received from / paid to'), member: T('Member name'), typeName: T('Type 2 letters of the name'), dues: T('Dues – tick to receive'), nodues: T('No dues for these years.'), due: T('Due'), paidYears: T('Already paid'), ref: T('Receipt / voucher no. (optional)'), notes: T('Notes'),
   };
   for (const k of [...IN_CATS, ...OUT_CATS]) L[k] = T(k);
 
@@ -326,7 +331,7 @@ export default async function Orgs({ searchParams }) {
       {(!org || tab === 'finance') && <details className="card fold" style={{ '--c': c }} open={all.length === 0 || undefined}>
         <summary className="card-sum"><h2>＋ {T('New entry')}</h2><span className="chev" aria-hidden="true" /></summary>
         <form action={add} className="row entry-form" style={{ marginTop: 10 }}>
-          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} names={memberNames} />
+          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} names={org ? memberInfo : memberNames} fee={fee} years={dueYears} />
           <button className="p">{T('Add entry')}</button>
         </form>
       </details>}

@@ -20,6 +20,19 @@ async function doRenew(org, memberId, name, year, amount, date) {
 const feeOf = async (org) => Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50);
 const yr = (v) => { const y = Number(v); return y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
 
+// Cash in > Membership fee: tick the years a member is paying. One renewal + Cash in entry per ticked year, at the organisation's fee.
+export async function payDues(fd) {
+  await requireAdmin(); await ensureSchema();
+  const id = Number(fd.get('member_id')); const years = [...new Set(fd.getAll('pay_year').map(yr))];
+  if (!id || !years.length) return false;
+  const m = (await sql`SELECT id, org, name FROM org_members WHERE id = ${id}`)[0];
+  if (!m) return false;
+  const d = String(fd.get('tx_date') || ''); const fee = await feeOf(m.org);
+  for (const y of years.sort()) await doRenew(m.org, m.id, m.name, y, fee, isDate(d) ? d : today());
+  revalidatePath('/orgs');
+  return true;
+}
+
 // Finance: receive a member's renewal fee on a chosen date. Records the renewal and a Cash in (Membership fee) entry.
 export async function receiveFee(fd) {
   await requireAdmin(); await ensureSchema();
