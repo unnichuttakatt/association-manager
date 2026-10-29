@@ -40,6 +40,17 @@ export default async function Account({ searchParams }) {
     redirect('/account?msg=off');
   }
 
+  async function changePw(formData) {
+    'use server';
+    const u = await requireUser();
+    const r = (await sql`SELECT password_hash FROM users WHERE id = ${u.id}`)[0];
+    const cur = String(formData.get('current') || ''), n1 = String(formData.get('next') || ''), n2 = String(formData.get('again') || '');
+    if (!(await bcrypt.compare(cur, r.password_hash))) redirect('/account?msg=pwwrong');
+    if (n1.length < 8 || n1.length > 200) redirect('/account?msg=pwshort');
+    if (n1 !== n2) redirect('/account?msg=pwmatch');
+    await sql`UPDATE users SET password_hash = ${await bcrypt.hash(n1, 10)} WHERE id = ${u.id}`;
+    redirect('/account?msg=pwok');
+  }
   async function delKey(formData) {
     'use server';
     const u = await requireUser();
@@ -56,6 +67,19 @@ export default async function Account({ searchParams }) {
   }
   return (
     <>
+    <div className="card" style={{maxWidth:480}}>
+      <h2>{T('Change password')}</h2>
+      {msg === 'pwok' && <p className="sum">{T('Password changed.')}</p>}
+      {msg === 'pwwrong' && <p className="err">{T('Current password is wrong.')}</p>}
+      {msg === 'pwshort' && <p className="err">{T('New password must be at least 8 characters.')}</p>}
+      {msg === 'pwmatch' && <p className="err">{T('The two new passwords do not match.')}</p>}
+      <form action={changePw}>
+        <input name="current" type="password" autoComplete="current-password" placeholder={T('Current password')} required style={{width:'100%'}} />
+        <input name="next" type="password" autoComplete="new-password" minLength={8} placeholder={T('New password (8+ characters)')} required style={{width:'100%'}} />
+        <input name="again" type="password" autoComplete="new-password" minLength={8} placeholder={T('Repeat new password')} required style={{width:'100%'}} />
+        <button className="p" style={{marginTop:8}}>{T('Change password')}</button>
+      </form>
+    </div>
     <div className="card" style={{maxWidth:480}}>
       <h2>{T('Sign-in security')}</h2>
       {msg === 'on' && <p className="sum">{T('Authenticator is on. You will need a code each time you sign in.')}</p>}
