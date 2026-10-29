@@ -144,7 +144,7 @@ export default async function Orgs({ searchParams }) {
   const counts = Object.fromEntries((await sql`SELECT org, count(*)::int AS n FROM org_members GROUP BY org`).map((x) => [x.org, x.n]));
   const q = String(sp.q || '').trim().toLowerCase();
   const year = Number(sp.y) >= 2000 && Number(sp.y) <= 2100 ? Number(sp.y) : new Date().getFullYear();
-  const tab = org && ['members', 'report'].includes(sp.t) ? sp.t : 'finance';
+  const tab = org && ['members', 'report', 'summary'].includes(sp.t) ? sp.t : 'finance';
   const rf = ['yes', 'no'].includes(sp.r) ? sp.r : '';
   const fee = org ? Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50) : 50;
   const renewals = org ? Object.fromEntries((await sql`SELECT member_id, to_char(paid_on,'YYYY-MM-DD') AS paid_on, amount FROM org_renewals WHERE org = ${org} AND year = ${year}`).map((x) => [x.member_id, x])) : {};
@@ -171,8 +171,8 @@ export default async function Orgs({ searchParams }) {
       <h1 className="pg-h">{org ? org : T('Organisation cash')}</h1>
       {org && <p><Link className="doc" href="/orgs">← {T('All organisations')}</Link></p>}
       {org && (
-        <div className="pur-filter">
-          {[['finance', T('Finance')], ['members', T('Members')], ['report', T('Renewal report')]].map(([k, l]) => <Link key={k} href={`/orgs?${new URLSearchParams({ o: org, ...(k !== 'finance' ? { t: k } : {}), ...(k !== 'finance' ? { y: String(year) } : {}) })}`} className={`chipf ${tab === k ? 'on' : ''}`}>{l}</Link>)}
+        <div className="pur-filter noprint">
+          {[['finance', T('Finance')], ['summary', T('Income & expense')], ['members', T('Members')], ['report', T('Renewal report')]].map(([k, l]) => <Link key={k} href={`/orgs?${new URLSearchParams({ o: org, ...(k !== 'finance' ? { t: k } : {}), ...(k === 'members' || k === 'report' ? { y: String(year) } : {}) })}`} className={`chipf ${tab === k ? 'on' : ''}`}>{l}</Link>)}
         </div>
       )}
       {(!org || tab === 'finance') && <div className="pur-sum">
@@ -348,6 +348,66 @@ export default async function Orgs({ searchParams }) {
         </div>
       )}
 
+      {org && tab === 'summary' && (() => {
+        const from = isDate(sp.from) ? sp.from : '', to = isDate(sp.to) ? sp.to : '';
+        const inRange = (r) => (!from || r.tx_date >= from) && (!to || r.tx_date <= to);
+        const isOpen = (r) => r.category === 'Opening balance';
+        const fwd = inOrg.filter((r) => (from && r.tx_date < from && (!to || true)) || (isOpen(r) && inRange(r)));
+        const per = inOrg.filter((r) => inRange(r) && !isOpen(r));
+        const curs = [...new Set([...fwd, ...per].map(cur2))];
+        if (!curs.length) curs.push('AED');
+        const lines = [`${org} - ${T('Income & expense')}`, `${from || T('Start')} → ${to || T('Today')}`];
+        const blocks = curs.map((cu) => {
+          const f0 = fwd.filter((r) => cur2(r) === cu).reduce((a, r) => a + signed(r), 0);
+          const grp = (kind) => {
+            const g = {};
+            for (const r of per.filter((x) => x.kind === kind && cur2(x) === cu)) { g[r.category] = g[r.category] || { n: 0, v: 0 }; g[r.category].n++; g[r.category].v += num(r.amount); }
+            const list = Object.entries(g).map(([category, x]) => ({ category, ...x })).sort((a, b) => b.v - a.v);
+            return { list, total: list.reduce((a, x) => a + x.v, 0) };
+          };
+          const I = grp('in'), O = grp('out'), close = f0 + I.total - O.total;
+          lines.push('', `[${cu}]`, `${T('Brought forward')}: ${money(f0, cu)}`, `${T('Cash in')}:`, ...I.list.map((x) => `  ${T(x.category)}: ${money(x.v, cu)}`), `  ${T('Total income')}: ${money(I.total, cu)}`, `${T('Cash out')}:`, ...O.list.map((x) => `  ${T(x.category)}: ${money(x.v, cu)}`), `  ${T('Total expense')}: ${money(O.total, cu)}`, `${T('Closing balance')}: ${money(close, cu)}`);
+          const tbl = (title, G, cls) => (
+            <>
+              <h3>{title}</h3>
+              <div className="scroll"><table className="cattbl"><thead><tr><th>{T('Category')}</th><th className="num">{T('Entries')}</th><th className="num">{T('Amount')}</th><th className="num">%</th></tr></thead>
+                <tbody>{G.list.length === 0 && <tr><td colSpan="4"><i>{T('Nothing in this period.')}</i></td></tr>}
+                  {G.list.map((x) => <tr key={x.category}><td>{T(x.category)}</td><td className="num">{x.n}</td><td className="num">{money(x.v, cu)}</td><td className="num">{G.total ? Math.round((x.v / G.total) * 100) : 0}%</td></tr>)}
+                </tbody>
+                <tfoot><tr className={cls}><td colSpan="2">{title === T('Cash in') ? T('Total income') : T('Total expense')}</td><td className="num">{money(G.total, cu)}</td><td /></tr></tfoot></table></div>
+            </>
+          );
+          return (
+            <div key={cu} className="sumblock">
+              {curs.length > 1 && <h3 style={{ marginTop: 18 }}>{cu}</h3>}
+              <div className="pur-sum">
+                <div className="ds"><span>{T('Brought forward')}</span><b>{money(f0, cu)}</b></div>
+                <div className="ds in"><span>{T('Total income')}</span><b>{money(I.total, cu)}</b></div>
+                <div className="ds out"><span>{T('Total expense')}</span><b>{money(O.total, cu)}</b></div>
+                <div className="ds"><span>{T('Closing balance')}</span><b>{money(close, cu)}</b></div>
+              </div>
+              {tbl(T('Cash in'), I, 'tin')}
+              {tbl(T('Cash out'), O, 'tout')}
+            </div>
+          );
+        });
+        return (
+          <div className="card report" style={{ '--c': c }}>
+            <h2>{T('Income & expense')} — {T('by category')}</h2>
+            <p className="sum">{from ? dt(from) : T('Start')} → {to ? dt(to) : T('Today')}</p>
+            <form method="get" className="row noprint">
+              <input type="hidden" name="o" value={org} /><input type="hidden" name="t" value="summary" />
+              <label className="f"><span>{T('From')}</span><input name="from" type="date" defaultValue={from} /></label>
+              <label className="f"><span>{T('To')}</span><input name="to" type="date" defaultValue={to} /></label>
+              <button className="p">{T('Show')}</button>
+              {(from || to) && <Link className="doc" href={`/orgs?${new URLSearchParams({ o: org, t: 'summary' })}`}>{T('All dates')}</Link>}
+            </form>
+            <ReportActions text={lines.join('\n')} labels={{ print: T('Print / save as PDF'), copy: T('Copy as text (WhatsApp)'), copied: T('Copied') }} />
+            {blocks}
+          </div>
+        );
+      })()}
+
       {org && tab === 'report' && (() => {
         const done = members.filter((m) => renewals[m.id]).sort((a, b) => (renewals[a.id].paid_on > renewals[b.id].paid_on ? 1 : -1));
         const pend = members.filter((m) => !renewals[m.id]);
@@ -385,17 +445,6 @@ export default async function Orgs({ searchParams }) {
           </div>
         );
       })()}
-
-      {org && tab === 'finance' && catList.length > 0 && (
-        <details className="card fold" style={{ '--c': c }}>
-          <summary className="card-sum"><h2>{T('By category')}</h2><span className="count">{catList.length}</span><span className="chev" aria-hidden="true" /></summary>
-          <ul className="entries">
-            {catList.map((x, i) => <li className="entry" key={i}><div className="e-top">
-              <span className={`pst ${x.kind === 'in' ? 'paid' : 'unpaid'}`}>{x.kind === 'in' ? T('Cash in') : T('Cash out')}</span>
-              <span className="chip">{T(x.category)}</span><b className="e-amt">{money(x.v, x.cur)}</b></div></li>)}
-          </ul>
-        </details>
-      )}
 
       {org && tab === 'finance' && <>
       <div className="pur-filter">
