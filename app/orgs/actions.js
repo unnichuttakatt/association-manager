@@ -31,13 +31,21 @@ export async function receiveFee(fd) {
   await doRenew(m.org, m.id, m.name, year, amt, isDate(d) ? d : today());
   revalidatePath('/orgs');
 }
+const img = (v, max) => { v = String(v || ''); return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v) && v.length <= max ? v : ''; };
+export async function setLogo(fd) {
+  await requireAdmin(); await ensureSchema();
+  const org = String(fd.get('org') || '');
+  await sql`UPDATE orgs SET logo = ${img(fd.get('logo'), 200000)} WHERE name = ${org}`;
+  revalidatePath('/orgs');
+}
 export async function updateMember(fd) {
   await requireAdmin(); await ensureSchema();
   const id = Number(fd.get('id')); const name = String(fd.get('name') || '').trim().slice(0, 120);
   if (!id || !name) return;
   const j = String(fd.get('joined') || '');
   const t = (k, n) => String(fd.get(k) || '').trim().slice(0, n);
-  await sql`UPDATE org_members SET name=${name}, phone=${t('phone', 40)}, member_no=${t('member_no', 40)}, place=${t('place', 120)}, joined=${isDate(j) ? j : null}, status=${t('status', 40)} WHERE id=${id}`;
+  await sql`UPDATE org_members SET name=${name}, phone=${t('phone', 40)}, member_no=${t('member_no', 40)}, place=${t('place', 120)}, joined=${isDate(j) ? j : null}, status=${t('status', 40)}, blood_group=${t('blood_group', 6).toUpperCase()} WHERE id=${id}`;
+  if (fd.get('photo_set')) { const ph = img(fd.get('photo'), 60000); await sql`UPDATE org_members SET photo=${ph} WHERE id=${id}`; }
   revalidatePath('/orgs');
 }
 export async function undoRenewal(fd) {

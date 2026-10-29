@@ -10,7 +10,8 @@ import Supplier from './Supplier';
 import Kind from './Kind';
 import MemberImport from './MemberImport';
 import ReportActions from './ReportActions';
-import { receiveFee, undoRenewal, setFee, setOpening, updateMember } from './actions';
+import { receiveFee, undoRenewal, setFee, setOpening, updateMember, setLogo } from './actions';
+import PhotoPick from './PhotoPick';
 import { IN_CATS, OUT_CATS } from './cats';
 
 export const dynamic = 'force-dynamic';
@@ -147,8 +148,10 @@ export default async function Orgs({ searchParams }) {
   const rf = ['yes', 'no'].includes(sp.r) ? sp.r : '';
   const fee = org ? Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50) : 50;
   const renewals = org ? Object.fromEntries((await sql`SELECT member_id, to_char(paid_on,'YYYY-MM-DD') AS paid_on, amount FROM org_renewals WHERE org = ${org} AND year = ${year}`).map((x) => [x.member_id, x])) : {};
+  const orgLogo = org ? ((await sql`SELECT logo FROM orgs WHERE name = ${org}`)[0]?.logo || '') : '';
+  const PL = { choose: T('Choose picture'), change: T('Change picture'), remove: T('Remove') };
   const memberNames = (org ? await sql`SELECT DISTINCT name FROM org_members WHERE org = ${org} ORDER BY name` : await sql`SELECT DISTINCT name FROM org_members ORDER BY name`).map((x) => x.name);
-  const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
+  const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes, blood_group, photo FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
     : [];
   const shown = members.filter((m) => (!q || [m.name, m.phone, m.member_no, m.place].some((v) => String(v).toLowerCase().includes(q))) && (!rf || (rf === 'yes') === !!renewals[m.id]));
   const pendingMembers = members.filter((m) => !renewals[m.id]);
@@ -228,6 +231,14 @@ export default async function Orgs({ searchParams }) {
         <details className="card fold" style={{ '--c': c }} open>
           <summary className="card-sum"><h2>{T('Members')}</h2><span className="count">{counts[org] || 0}</span><span className="chev" aria-hidden="true" /></summary>
           <p className="sum">{T('Upload an Excel or CSV list. The first row should have column names such as Name, Phone, Member no., Place, Joined, Status. Members already in the list (same member no., or same name and phone) are updated, not added twice.')}</p>
+          <div className="pur-filter" style={{ marginTop: 6 }}>
+            <Link className="doc" href={`/orgs/card?o=${encodeURIComponent(org)}`} target="_blank">🪪 {T('Print all ID cards')}</Link>
+          </div>
+          <details className="mem-add"><summary className="doc">{T('Organisation logo (for ID cards)')}</summary>
+            <form action={setLogo} className="row"><input type="hidden" name="org" value={org} />
+              <PhotoPick name="logo" value={orgLogo} shape="logo" labels={PL} />
+              <button className="p">{T('Save logo')}</button></form>
+          </details>
           <details className="mem-add"><summary className="doc">＋ {T('Add or upload members')}</summary>
           <MemberImport org={org} labels={{ year: T('Renewal year (for a Renewed column)'), ren: T('{n} marked renewed for {y}.'), file: T('Excel or CSV file (max 4 MB)'), btn: T('Upload members'), done: T('{a} members added, {u} updated.') }} />
           <form action={addMember} className="row" style={{ marginTop: 10 }}>
@@ -269,7 +280,7 @@ export default async function Orgs({ searchParams }) {
                 return (
                   <details className={`mem ${r ? 'ok' : 'due'}`} key={m.id}>
                     <summary className="mem-top">
-                      <span className="avatar" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>
+                      {m.photo ? <img className="avatar ph" src={m.photo} alt="" /> : <span className="avatar" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>}
                       <span className="mem-id"><b>{m.name}</b>
                         <small>{r ? `${T('Renewed')} ${dt(r.paid_on)}` : `${T('Due')} ${money(fee, 'AED')}`}</small></span>
                       {r ? <span className="pst paid">✔</span> : <span className="pst unpaid">{T('Due')}</span>}
@@ -278,14 +289,18 @@ export default async function Orgs({ searchParams }) {
                       <div className="mem-info">
                         <span>{m.phone ? <a href={`tel:${m.phone}`}>📞 {m.phone}</a> : <i>{T('No phone yet')}</i>}</span>
                         {m.member_no && <span>#{m.member_no}</span>}
+                        {m.blood_group && <span>🩸 {m.blood_group}</span>}
                         {m.place && <span>📍 {m.place}</span>}
                         {m.status && <span>{m.status}</span>}
                         {m.joined && <span>{T('Joined')} {dt(m.joined)}</span>}
                       </div>
                       <div className="mem-act">
                         {!r && (wa ? <a className="wa" href={wa} target="_blank" rel="noreferrer">💬 {T('WhatsApp reminder')}</a> : <span className="wa off" title={T('Add a phone number first')}>💬 {T('WhatsApp reminder')}</span>)}
+                        <Link className="doc" href={`/orgs/card?id=${m.id}`} target="_blank">🪪 {T('ID card')}</Link>
                         <details className="mem-edit"><summary className="doc">{T('Edit')}</summary>
                           <form action={updateMember} className="row"><input type="hidden" name="id" value={m.id} />
+                            <PhotoPick name="photo" value={m.photo} labels={PL} />
+                            <label className="f"><span>{T('Blood group')}</span><select name="blood_group" defaultValue={m.blood_group || ''}><option value="">—</option>{['A+','A-','B+','B-','AB+','AB-','O+','O-'].map((b) => <option key={b}>{b}</option>)}</select></label>
                             <label className="f"><span>{T('Name')}</span><input name="name" defaultValue={m.name} required maxLength={120} /></label>
                             <label className="f"><span>{T('Phone')}</span><input name="phone" defaultValue={m.phone} maxLength={40} inputMode="tel" placeholder="05XXXXXXXX / +971…" /></label>
                             <label className="f"><span>{T('Member no.')}</span><input name="member_no" defaultValue={m.member_no} maxLength={40} /></label>
