@@ -14,7 +14,7 @@ export default function Kind({ kind = 'in', category = '', labels, party = '', m
   const [ticks, setTicks] = useState([]);
   const nm = (x) => (typeof x === 'string' ? x : x.name);
   const hits = isFee && q.trim().length >= 2 ? members.filter((x) => nm(x).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8) : [];
-  const m = isFee && picked && picked.name === q ? picked : null;
+  const m = isFee ? (members.find((x) => typeof x !== 'string' && x.name.toLowerCase() === q.trim().toLowerCase()) || null) : null;
   const dues = m ? years.filter((y) => !(m.paid || []).includes(y)) : [];
   const setAmt = (el, n) => { const f = el?.form; if (f && f.elements.amount) f.elements.amount.value = n ? String(n * fee) : ''; };
   const tick = (e, y) => { const t = e.target.checked ? [...ticks, y] : ticks.filter((z) => z !== y); setTicks(t); setAmt(e.target, t.length); };
