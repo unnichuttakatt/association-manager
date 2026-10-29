@@ -610,3 +610,15 @@ html[lang=ml] .sq-own{font-size:13.5px}
 .id-sign span{flex:1;border-top:.25mm solid #0B2F36;padding-top:.8mm;text-align:center;font-size:2.4mm}
 @media(max-width:640px){.idsheet{overflow-x:auto;align-items:flex-start}}
 @media print{@page{size:A4;margin:10mm}.idsheet{margin:0;gap:6mm}main{padding:0!important}}
+
+/* member list rows styled like an ID card */
+.mem-grid{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+.mem>summary.mem-top{align-items:stretch;gap:12px;padding:12px;position:relative}
+.mp{flex:none;width:68px;height:85px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff}
+.mp.none{display:grid;place-items:center;font:700 22px var(--display);color:#fff;background:hsl(var(--h) 45% 38%);border:0}
+.mem-top .mem-id{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mem-top .mem-id b{font-size:16px;margin-bottom:3px}
+.mi{font-size:13.5px;line-height:1.35;overflow-wrap:anywhere}.mi i{font-style:normal;color:var(--muted);display:inline-block;min-width:74px;font-size:12.5px}
+.bgt{font-style:normal;font-weight:800;color:#B42318}
+.mp-st{position:absolute;top:10px;right:10px;font-size:11.5px;padding:2px 8px}
+.mem-top .mem-id b{padding-right:70px}

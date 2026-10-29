@@ -280,18 +280,20 @@ export default async function Orgs({ searchParams }) {
                 return (
                   <details className={`mem ${r ? 'ok' : 'due'}`} key={m.id}>
                     <summary className="mem-top">
-                      {m.photo ? <img className="avatar ph" src={m.photo} alt="" /> : <span className="avatar" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>}
+                      {m.photo ? <img className="mp" src={m.photo} alt="" /> : <span className="mp none" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>}
                       <span className="mem-id"><b>{m.name}</b>
-                        <small>{r ? `${T('Renewed')} ${dt(r.paid_on)}` : `${T('Due')} ${money(fee, 'AED')}`}</small></span>
-                      {r ? <span className="pst paid">✔</span> : <span className="pst unpaid">{T('Due')}</span>}
+                        <span className="mi"><i>{T('Member no.')}</i> {m.member_no || '—'}</span>
+                        <span className="mi"><i>{T('Blood group')}</i> <em className="bgt">{m.blood_group || '—'}</em></span>
+                        <span className="mi"><i>{T('Phone')}</i> {m.phone || '—'}</span>
+                        {m.place && <span className="mi"><i>{T('Place')}</i> {m.place}</span>}
+                      </span>
+                      <span className={`pst ${r ? 'paid' : 'unpaid'} mp-st`}>{r ? `✔ ${T('Renewed')}` : `${T('Due')} ${fmt(fee)}`}</span>
                     </summary>
                     <div className="mem-body">
                       <div className="mem-info">
-                        <span>{m.phone ? <a href={`tel:${m.phone}`}>📞 {m.phone}</a> : <i>{T('No phone yet')}</i>}</span>
-                        {m.member_no && <span>#{m.member_no}</span>}
-                        {m.blood_group && <span>🩸 {m.blood_group}</span>}
-                        {m.place && <span>📍 {m.place}</span>}
+                        <span>{m.phone ? <a href={`tel:${m.phone}`}>📞 {T('Call')}</a> : <i>{T('No phone yet')}</i>}</span>
                         {m.status && <span>{m.status}</span>}
+                        {r && <span>{T('Renewed')} {dt(r.paid_on)}</span>}
                         {m.joined && <span>{T('Joined')} {dt(m.joined)}</span>}
                       </div>
                       <div className="mem-act">
