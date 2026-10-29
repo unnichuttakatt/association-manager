@@ -50,17 +50,16 @@ function clean(fd) {
   };
 }
 
-function Fields({ r = {}, L, orgs, more }) {
+function Fields({ r = {}, L, orgs, more, names = [] }) {
   return (
     <>
-      <Kind kind={r.kind || 'in'} category={r.category || ''} labels={L} />
+      <Kind kind={r.kind || 'in'} category={r.category || ''} labels={{ ...L, member: L.member || L.party, typeName: L.typeName }} party={r.party || ''} members={names} />
       <div className="amt-row">
         <label className="f amt"><span>{L.amount}</span><input name="amount" type="number" step="any" min="0" inputMode="decimal" placeholder="0.00" defaultValue={r.amount != null ? String(num(r.amount)) : ''} required /></label>
         <label className="f cur"><span>{L.currency}</span>
           <select name="currency" defaultValue={r.currency === 'INR' ? 'INR' : 'AED'}><option>AED</option><option>INR</option></select></label>
       </div>
       <label className="f"><span>{L.date}</span><input name="tx_date" type="date" defaultValue={r.tx_date ? String(r.tx_date).slice(0, 10) : today()} required /></label>
-      <label className="f"><span>{L.party}</span><input name="party" defaultValue={r.party || ''} maxLength={120} /></label>
       <details className="more" open={!!(r.ref || r.notes) || undefined}><summary className="doc">{more}</summary>
         <Supplier list={orgs} value={r.org || ''} labels={{ supplier: L.org, pick: L.pickOrg, addNew: L.addOrg, newName: L.newOrg }} />
         <label className="f"><span>{L.ref}</span><input name="ref" defaultValue={r.ref || ''} maxLength={60} /></label>
@@ -148,6 +147,7 @@ export default async function Orgs({ searchParams }) {
   const rf = ['yes', 'no'].includes(sp.r) ? sp.r : '';
   const fee = org ? Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50) : 50;
   const renewals = org ? Object.fromEntries((await sql`SELECT member_id, to_char(paid_on,'YYYY-MM-DD') AS paid_on, amount FROM org_renewals WHERE org = ${org} AND year = ${year}`).map((x) => [x.member_id, x])) : {};
+  const memberNames = (org ? await sql`SELECT DISTINCT name FROM org_members WHERE org = ${org} ORDER BY name` : await sql`SELECT DISTINCT name FROM org_members ORDER BY name`).map((x) => x.name);
   const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
     : [];
   const shown = members.filter((m) => (!q || [m.name, m.phone, m.member_no, m.place].some((v) => String(v).toLowerCase().includes(q))) && (!rf || (rf === 'yes') === !!renewals[m.id]));
@@ -159,7 +159,7 @@ export default async function Orgs({ searchParams }) {
   const L = {
     date: T('Date'), org: T('Organisation'), pickOrg: T('Select organisation'), addOrg: T('Add new organisation'), newOrg: T('New organisation name'),
     kind: T('Cash in or out'), in: T('Cash in'), out: T('Cash out'), category: T('Category'), amount: T('Amount'), currency: T('Currency'),
-    party: T('Received from / paid to'), ref: T('Receipt / voucher no. (optional)'), notes: T('Notes'),
+    party: T('Received from / paid to'), member: T('Member name'), typeName: T('Type 2 letters of the name'), ref: T('Receipt / voucher no. (optional)'), notes: T('Notes'),
   };
   for (const k of [...IN_CATS, ...OUT_CATS]) L[k] = T(k);
 
@@ -309,7 +309,7 @@ export default async function Orgs({ searchParams }) {
       {(!org || tab === 'finance') && <details className="card fold" style={{ '--c': c }} open={all.length === 0 || undefined}>
         <summary className="card-sum"><h2>＋ {T('New entry')}</h2><span className="chev" aria-hidden="true" /></summary>
         <form action={add} className="row entry-form" style={{ marginTop: 10 }}>
-          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} />
+          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} names={memberNames} />
           <button className="p">{T('Add entry')}</button>
         </form>
       </details>}
@@ -408,7 +408,7 @@ export default async function Orgs({ searchParams }) {
                   {r.notes && <p className="ent-note">{r.notes}</p>}
                   <details className="pur-edit">
                     <summary className="doc">{T('Edit')}</summary>
-                    <form action={update} className="row entry-form"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} more={T('More details')} /><button className="p">{T('Save changes')}</button></form>
+                    <form action={update} className="row entry-form"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} more={T('More details')} names={memberNames} /><button className="p">{T('Save changes')}</button></form>
                     <form action={del}><input type="hidden" name="id" value={r.id} /><button className="doc danger">{T('Delete this entry')}</button></form>
                   </details>
                 </div>

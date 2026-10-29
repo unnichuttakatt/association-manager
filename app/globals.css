@@ -578,3 +578,8 @@ html[lang=ml] .sq-own{font-size:13.5px}
 .more{width:100%;margin:0 0 8px}.more>summary{cursor:pointer;display:inline-block;margin-bottom:8px}
 .entry-form>*{width:100%}
 .entry-form .f{margin-right:0}
+
+.party-f{position:relative}
+.sugg{position:absolute;left:0;right:0;top:100%;z-index:30;margin:-6px 0 0;padding:4px;list-style:none;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(15,61,70,.18);max-height:260px;overflow:auto}
+.sugg button{display:block;width:100%;text-align:left;background:none;border:0;padding:12px;font-size:16px;border-radius:8px;color:var(--ink);min-height:44px}
+.sugg button:hover,.sugg button:focus{background:var(--mist)}
