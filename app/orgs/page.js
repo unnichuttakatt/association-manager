@@ -50,18 +50,22 @@ function clean(fd) {
   };
 }
 
-function Fields({ r = {}, L, orgs }) {
+function Fields({ r = {}, L, orgs, more }) {
   return (
     <>
-      <label className="f"><span>{L.date}</span><input name="tx_date" type="date" defaultValue={r.tx_date ? String(r.tx_date).slice(0, 10) : today()} required /></label>
-      <Supplier list={orgs} value={r.org || ''} labels={{ supplier: L.org, pick: L.pickOrg, addNew: L.addOrg, newName: L.newOrg }} />
       <Kind kind={r.kind || 'in'} category={r.category || ''} labels={L} />
-      <label className="f"><span>{L.amount}</span><input name="amount" type="number" step="any" min="0" inputMode="decimal" defaultValue={r.amount != null ? String(num(r.amount)) : ''} required /></label>
-      <label className="f"><span>{L.currency}</span>
-        <select name="currency" defaultValue={r.currency === 'INR' ? 'INR' : 'AED'}><option>AED</option><option>INR</option></select></label>
+      <div className="amt-row">
+        <label className="f amt"><span>{L.amount}</span><input name="amount" type="number" step="any" min="0" inputMode="decimal" placeholder="0.00" defaultValue={r.amount != null ? String(num(r.amount)) : ''} required /></label>
+        <label className="f cur"><span>{L.currency}</span>
+          <select name="currency" defaultValue={r.currency === 'INR' ? 'INR' : 'AED'}><option>AED</option><option>INR</option></select></label>
+      </div>
+      <label className="f"><span>{L.date}</span><input name="tx_date" type="date" defaultValue={r.tx_date ? String(r.tx_date).slice(0, 10) : today()} required /></label>
       <label className="f"><span>{L.party}</span><input name="party" defaultValue={r.party || ''} maxLength={120} /></label>
-      <label className="f"><span>{L.ref}</span><input name="ref" defaultValue={r.ref || ''} maxLength={60} /></label>
-      <label className="f" style={{ flex: '1 1 100%' }}><span>{L.notes}</span><input name="notes" defaultValue={r.notes || ''} maxLength={500} style={{ width: '100%' }} /></label>
+      <details className="more" open={!!(r.ref || r.notes) || undefined}><summary className="doc">{more}</summary>
+        <Supplier list={orgs} value={r.org || ''} labels={{ supplier: L.org, pick: L.pickOrg, addNew: L.addOrg, newName: L.newOrg }} />
+        <label className="f"><span>{L.ref}</span><input name="ref" defaultValue={r.ref || ''} maxLength={60} /></label>
+        <label className="f"><span>{L.notes}</span><input name="notes" defaultValue={r.notes || ''} maxLength={500} /></label>
+      </details>
     </>
   );
 }
@@ -176,7 +180,7 @@ export default async function Orgs({ searchParams }) {
       </div>}
 
       {org && tab === 'finance' && (
-        <details className="card fold" style={{ '--c': c }} open={pendingMembers.length > 0 || undefined}>
+        <details className="card fold" style={{ '--c': c }}>
           <summary className="card-sum"><h2>{T('Membership fee payment')}</h2><span className="count">{pendingMembers.length} {T('due')}</span><span className="chev" aria-hidden="true" /></summary>
           <p className="sum">{T('Receive a member\'s renewal fee. It is recorded as Cash in (Membership fee) on the date you choose and the member shows as renewed.')}</p>
           {pendingMembers.length === 0 ? <p className="empty">{T('Everyone has renewed for this year.')}</p> : (
@@ -263,32 +267,38 @@ export default async function Orgs({ searchParams }) {
                 const msg = T('Hello {name}, a gentle reminder from {org}: your {y} membership renewal fee of AED {fee} is still pending. Please pay at your earliest convenience. Thank you.', { name: m.name, org, y: year, fee: fmt(fee) });
                 const wa = waLink(m.phone, msg);
                 return (
-                  <div className={`mem ${r ? 'ok' : 'due'}`} key={m.id}>
-                    <div className="mem-top">
+                  <details className={`mem ${r ? 'ok' : 'due'}`} key={m.id}>
+                    <summary className="mem-top">
                       <span className="avatar" style={{ '--h': hue(m.name) }}>{initials(m.name)}</span>
-                      <div className="mem-id"><b>{m.name}</b>
-                        <small>{[m.member_no && `#${m.member_no}`, m.place, m.status].filter(Boolean).join(' · ') || '\u00a0'}</small></div>
+                      <span className="mem-id"><b>{m.name}</b>
+                        <small>{r ? `${T('Renewed')} ${dt(r.paid_on)}` : `${T('Due')} ${money(fee, 'AED')}`}</small></span>
+                      {r ? <span className="pst paid">✔</span> : <span className="pst unpaid">{T('Due')}</span>}
+                    </summary>
+                    <div className="mem-body">
+                      <div className="mem-info">
+                        <span>{m.phone ? <a href={`tel:${m.phone}`}>📞 {m.phone}</a> : <i>{T('No phone yet')}</i>}</span>
+                        {m.member_no && <span>#{m.member_no}</span>}
+                        {m.place && <span>📍 {m.place}</span>}
+                        {m.status && <span>{m.status}</span>}
+                        {m.joined && <span>{T('Joined')} {dt(m.joined)}</span>}
+                      </div>
+                      <div className="mem-act">
+                        {!r && (wa ? <a className="wa" href={wa} target="_blank" rel="noreferrer">💬 {T('WhatsApp reminder')}</a> : <span className="wa off" title={T('Add a phone number first')}>💬 {T('WhatsApp reminder')}</span>)}
+                        <details className="mem-edit"><summary className="doc">{T('Edit')}</summary>
+                          <form action={updateMember} className="row"><input type="hidden" name="id" value={m.id} />
+                            <label className="f"><span>{T('Name')}</span><input name="name" defaultValue={m.name} required maxLength={120} /></label>
+                            <label className="f"><span>{T('Phone')}</span><input name="phone" defaultValue={m.phone} maxLength={40} inputMode="tel" placeholder="05XXXXXXXX / +971…" /></label>
+                            <label className="f"><span>{T('Member no.')}</span><input name="member_no" defaultValue={m.member_no} maxLength={40} /></label>
+                            <label className="f"><span>{T('Place')}</span><input name="place" defaultValue={m.place} maxLength={120} /></label>
+                            <label className="f"><span>{T('Joined')}</span><input name="joined" type="date" defaultValue={m.joined || ''} /></label>
+                            <label className="f"><span>{T('Status')}</span><input name="status" defaultValue={m.status} maxLength={40} /></label>
+                            <button className="p">{T('Save changes')}</button>
+                          </form>
+                          <form action={delMember}><input type="hidden" name="id" value={m.id} /><button className="doc danger">{T('Delete')}</button></form>
+                        </details>
+                      </div>
                     </div>
-                    <div className="mem-mid">
-                      <span className="mem-ph">{m.phone ? `📞 ${m.phone}` : <i>{T('No phone yet')}</i>}</span>
-                      {r ? <span className="pst paid">✔ {T('Renewed')} {dt(r.paid_on)}</span> : <span className="pst unpaid">{T('Due')} {money(fee, 'AED')}</span>}
-                    </div>
-                    <div className="mem-act">
-                      {!r && (wa ? <a className="wa" href={wa} target="_blank" rel="noreferrer">💬 {T('WhatsApp reminder')}</a> : <span className="wa off" title={T('Add a phone number first')}>💬 {T('WhatsApp reminder')}</span>)}
-                      <details className="mem-edit"><summary className="doc">{T('Edit')}</summary>
-                        <form action={updateMember} className="row"><input type="hidden" name="id" value={m.id} />
-                          <label className="f"><span>{T('Name')}</span><input name="name" defaultValue={m.name} required maxLength={120} /></label>
-                          <label className="f"><span>{T('Phone')}</span><input name="phone" defaultValue={m.phone} maxLength={40} inputMode="tel" placeholder="05XXXXXXXX / +971…" /></label>
-                          <label className="f"><span>{T('Member no.')}</span><input name="member_no" defaultValue={m.member_no} maxLength={40} /></label>
-                          <label className="f"><span>{T('Place')}</span><input name="place" defaultValue={m.place} maxLength={120} /></label>
-                          <label className="f"><span>{T('Joined')}</span><input name="joined" type="date" defaultValue={m.joined || ''} /></label>
-                          <label className="f"><span>{T('Status')}</span><input name="status" defaultValue={m.status} maxLength={40} /></label>
-                          <button className="p">{T('Save changes')}</button>
-                        </form>
-                        <form action={delMember}><input type="hidden" name="id" value={m.id} /><button className="doc danger">{T('Delete')}</button></form>
-                      </details>
-                    </div>
-                  </div>
+                  </details>
                 );
               })}
             </div>
@@ -297,9 +307,9 @@ export default async function Orgs({ searchParams }) {
       )}
 
       {(!org || tab === 'finance') && <details className="card fold" style={{ '--c': c }} open={all.length === 0 || undefined}>
-        <summary className="card-sum"><h2>{T('New entry')}</h2><span className="chev" aria-hidden="true" /></summary>
-        <form action={add} className="row" style={{ marginTop: 10 }}>
-          <Fields L={L} orgs={orgs} r={org ? { org } : {}} />
+        <summary className="card-sum"><h2>＋ {T('New entry')}</h2><span className="chev" aria-hidden="true" /></summary>
+        <form action={add} className="row entry-form" style={{ marginTop: 10 }}>
+          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} />
           <button className="p">{T('Add entry')}</button>
         </form>
       </details>}
@@ -360,14 +370,14 @@ export default async function Orgs({ searchParams }) {
       })()}
 
       {org && tab === 'finance' && catList.length > 0 && (
-        <div className="card" style={{ '--c': c }}>
-          <h2>{T('By category')}</h2>
+        <details className="card fold" style={{ '--c': c }}>
+          <summary className="card-sum"><h2>{T('By category')}</h2><span className="count">{catList.length}</span><span className="chev" aria-hidden="true" /></summary>
           <ul className="entries">
             {catList.map((x, i) => <li className="entry" key={i}><div className="e-top">
               <span className={`pst ${x.kind === 'in' ? 'paid' : 'unpaid'}`}>{x.kind === 'in' ? T('Cash in') : T('Cash out')}</span>
               <span className="chip">{T(x.category)}</span><b className="e-amt">{money(x.v, x.cur)}</b></div></li>)}
           </ul>
-        </div>
+        </details>
       )}
 
       {org && tab === 'finance' && <>
@@ -382,23 +392,26 @@ export default async function Orgs({ searchParams }) {
         {rows.length === 0 && <p className="empty">{all.length === 0 ? T('No entries yet. Add the first one above.') : T('Nothing matches this filter.')}</p>}
         <ul className="entries">
           {rows.map((r) => (
-            <li className="entry pur" key={r.id}>
-              <div className="e-top">
-                <span className="chip">{r.org}</span>
-                <span className="chip line">{T(r.category)}</span>
-                {r.party && <span className="chip who">{r.kind === 'in' ? '👤' : '➡'} {r.party}</span>}
-                <span className={`pst ${r.kind === 'in' ? 'paid' : 'unpaid'}`}>{r.kind === 'in' ? T('Cash in') : T('Cash out')}</span>
-                <b className={`e-amt ${r.kind === 'in' ? 'mup' : 'mdown'}`}>{r.kind === 'in' ? '+' : '−'}{money(num(r.amount), cur2(r))}</b>
-              </div>
-              <div className="e-meta">
-                <span>{dt(r.tx_date)}</span>
-                {r.ref && <span>#{r.ref}</span>}
-              </div>
-              {r.notes && <div className="e-meta soft"><span>{r.notes}</span></div>}
-              <details className="pur-edit">
-                <summary className="doc">{T('Edit')}</summary>
-                <form action={update} className="row"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} /><button className="p">{T('Save changes')}</button></form>
-                <form action={del}><input type="hidden" name="id" value={r.id} /><button className="doc danger">{T('Delete this entry')}</button></form>
+            <li className="ent" key={r.id}>
+              <details>
+                <summary className="ent-s">
+                  <span className={`ent-dot ${r.kind === 'in' ? 'in' : 'out'}`} aria-hidden="true">{r.kind === 'in' ? '＋' : '−'}</span>
+                  <span className="ent-m"><b>{r.party || T(r.category)}</b><small>{dt(r.tx_date)} · {T(r.category)}</small></span>
+                  <b className={`e-amt ${r.kind === 'in' ? 'mup' : 'mdown'}`}>{r.kind === 'in' ? '+' : '−'}{money(num(r.amount), cur2(r))}</b>
+                </summary>
+                <div className="ent-body">
+                  <div className="mem-info">
+                    <span className={`pst ${r.kind === 'in' ? 'paid' : 'unpaid'}`}>{r.kind === 'in' ? T('Cash in') : T('Cash out')}</span>
+                    <span>{r.org}</span>
+                    {r.ref && <span>#{r.ref}</span>}
+                  </div>
+                  {r.notes && <p className="ent-note">{r.notes}</p>}
+                  <details className="pur-edit">
+                    <summary className="doc">{T('Edit')}</summary>
+                    <form action={update} className="row entry-form"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} more={T('More details')} /><button className="p">{T('Save changes')}</button></form>
+                    <form action={del}><input type="hidden" name="id" value={r.id} /><button className="doc danger">{T('Delete this entry')}</button></form>
+                  </details>
+                </div>
               </details>
             </li>
           ))}
