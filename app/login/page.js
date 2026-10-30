@@ -49,6 +49,7 @@ export default function Login({ searchParams }) {
         <button className="p" style={{marginTop:8}}>{T('Sign in')}</button>
       </form>
       <PasskeyLogin label={T('Sign in with Face / fingerprint')} failText={T('Face / fingerprint sign-in did not work. Use your password.')} />
+      <p className="sum" style={{ marginTop: 10 }}>{T('First time? Sign in with your password, then add Face / fingerprint from the home screen or Security.')}</p>
     </div>
   );
 }
