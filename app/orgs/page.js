@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { sql, ensureSchema } from '../../lib/db';
 import { requireAdmin } from '../../lib/auth';
+import { loadScope, allows, cashInScope, memberInScope } from '../../lib/access';
 import { revalidatePath } from 'next/cache';
 import { num, fmt } from '../../lib/num';
 import { SECTION_COLORS } from '../../lib/colors';
@@ -51,7 +52,7 @@ function clean(fd) {
   };
 }
 
-function Fields({ r = {}, L, orgs, more, names = [], fee = 0, years = [] }) {
+function Fields({ r = {}, L, orgs, more, names = [], fee = 0, years = [], canAdd = false }) {
   return (
     <>
       <Kind kind={r.kind || 'in'} category={r.category || ''} labels={{ ...L, member: L.member || L.party, typeName: L.typeName }} party={r.party || ''} members={names} fee={fee} years={years} />
@@ -62,7 +63,7 @@ function Fields({ r = {}, L, orgs, more, names = [], fee = 0, years = [] }) {
       </div>
       <label className="f"><span>{L.date}</span><input name="tx_date" type="date" defaultValue={r.tx_date ? String(r.tx_date).slice(0, 10) : today()} required /></label>
       <details className="more" open={!!(r.ref || r.notes) || undefined}><summary className="doc">{more}</summary>
-        <Supplier list={orgs} value={r.org || ''} labels={{ supplier: L.org, pick: L.pickOrg, addNew: L.addOrg, newName: L.newOrg }} />
+        <Supplier list={orgs} value={r.org || ''} canAdd={canAdd} labels={{ supplier: L.org, pick: L.pickOrg, addNew: L.addOrg, newName: L.newOrg }} />
         <label className="f"><span>{L.ref}</span><input name="ref" defaultValue={r.ref || ''} maxLength={60} /></label>
         <label className="f"><span>{L.notes}</span><input name="notes" defaultValue={r.notes || ''} maxLength={500} /></label>
       </details>
@@ -71,59 +72,73 @@ function Fields({ r = {}, L, orgs, more, names = [], fee = 0, years = [] }) {
 }
 
 export default async function Orgs({ searchParams }) {
-  await requireAdmin();
+  const user = await requireAdmin();
   await ensureSchema();
+  const scope = await loadScope(user);
   const c = SECTION_COLORS.orgs;
 
   async function add(fd) {
     'use server';
-    await requireAdmin(); await ensureSchema();
+    const scope = await loadScope(await requireAdmin()); await ensureSchema();
     const v = clean(fd);
     if (v.kind === 'in' && v.category === 'Membership fee' && fd.get('member_id') && fd.getAll('pay_year').length) { if (await payDues(fd)) return; }
-    if (!v.org || !(v.amount > 0)) return;
-    await sql`INSERT INTO orgs (name) VALUES (${v.org}) ON CONFLICT (name) DO NOTHING`;
+    if (!allows(scope, v.org) || !(v.amount > 0)) return;
+    if (scope.all) await sql`INSERT INTO orgs (name) VALUES (${v.org}) ON CONFLICT (name) DO NOTHING`;
     await sql`INSERT INTO org_cash (tx_date, org, kind, category, amount, currency, party, ref, notes)
       VALUES (${v.tx_date}, ${v.org}, ${v.kind}, ${v.category}, ${v.amount}, ${v.currency}, ${v.party}, ${v.ref}, ${v.notes})`;
     revalidatePath('/orgs');
   }
   async function update(fd) {
     'use server';
-    await requireAdmin(); await ensureSchema();
+    const scope = await loadScope(await requireAdmin()); await ensureSchema();
     const id = Number(fd.get('id')); const v = clean(fd);
-    if (!id || !v.org || !(v.amount > 0)) return;
-    await sql`INSERT INTO orgs (name) VALUES (${v.org}) ON CONFLICT (name) DO NOTHING`;
-    await sql`UPDATE org_cash SET tx_date=${v.tx_date}, org=${v.org}, kind=${v.kind}, category=${v.category}, amount=${v.amount}, currency=${v.currency}, party=${v.party}, ref=${v.ref}, notes=${v.notes} WHERE id=${id}`;
+    const row = await cashInScope(scope, id);
+    if (!row || !allows(scope, v.org) || !(v.amount > 0)) return;
+    if (!scope.all && v.org !== row.org) return;
+    if (scope.all) await sql`INSERT INTO orgs (name) VALUES (${v.org}) ON CONFLICT (name) DO NOTHING`;
+    await sql`UPDATE org_cash SET tx_date=${v.tx_date}, org=${v.org}, kind=${v.kind}, category=${v.category}, amount=${v.amount}, currency=${v.currency}, party=${v.party}, ref=${v.ref}, notes=${v.notes} WHERE id=${row.id} AND org=${row.org}`;
     revalidatePath('/orgs');
   }
   async function del(fd) {
     'use server';
-    await requireAdmin(); await ensureSchema();
-    const id = Number(fd.get('id')); if (!id) return;
-    await sql`DELETE FROM org_cash WHERE id = ${id}`;
+    const scope = await loadScope(await requireAdmin()); await ensureSchema();
+    const row = await cashInScope(scope, fd.get('id'));
+    if (!row) return;
+    await sql`DELETE FROM org_cash WHERE id = ${row.id} AND org = ${row.org}`;
     revalidatePath('/orgs');
   }
 
   async function addMember(fd) {
     'use server';
-    await requireAdmin(); await ensureSchema();
-    const org = String(fd.get('org') || '').trim(); const name = String(fd.get('name') || '').trim().slice(0, 120);
-    if (!org || !name) return;
+    const scope = await loadScope(await requireAdmin()); await ensureSchema();
+    const org = String(fd.get('org') || '').trim().slice(0, 120); const name = String(fd.get('name') || '').trim().slice(0, 120);
+    if (!allows(scope, org) || !name) return;
     const j = String(fd.get('joined') || '');
     await sql`INSERT INTO org_members (org, name, phone, member_no, place, joined, status) VALUES (${org}, ${name}, ${String(fd.get('phone') || '').trim().slice(0, 40)}, ${String(fd.get('member_no') || '').trim().slice(0, 40)}, ${String(fd.get('place') || '').trim().slice(0, 120)}, ${isDate(j) ? j : null}, ${String(fd.get('status') || '').trim().slice(0, 40)})`;
     revalidatePath('/orgs');
   }
   async function delMember(fd) {
     'use server';
-    await requireAdmin(); await ensureSchema();
-    const id = Number(fd.get('id')); if (!id) return;
-    await sql`DELETE FROM org_members WHERE id = ${id}`;
+    const scope = await loadScope(await requireAdmin()); await ensureSchema();
+    const row = await memberInScope(scope, fd.get('id'));
+    if (!row) return;
+    await sql`DELETE FROM org_members WHERE id = ${row.id} AND org = ${row.org}`;
     revalidatePath('/orgs');
   }
 
-  const all = await sql`SELECT id, to_char(tx_date,'YYYY-MM-DD') AS tx_date, org, kind, category, amount, currency, party, ref, notes FROM org_cash ORDER BY org_cash.tx_date DESC, id DESC`;
-  const orgs = [...new Set([...(await sql`SELECT name FROM orgs`).map((x) => x.name), ...all.map((r) => r.org)])].sort((a, b) => a.localeCompare(b));
+  if (!scope.all && scope.orgs.length === 0) {
+    return <p className="empty">{T('You are not assigned to an association yet. Ask the account owner to assign you on the Users page.')}</p>;
+  }
+
+  const all = scope.all
+    ? await sql`SELECT id, to_char(tx_date,'YYYY-MM-DD') AS tx_date, org, kind, category, amount, currency, party, ref, notes FROM org_cash ORDER BY org_cash.tx_date DESC, id DESC`
+    : await sql`SELECT id, to_char(tx_date,'YYYY-MM-DD') AS tx_date, org, kind, category, amount, currency, party, ref, notes FROM org_cash WHERE org = ANY(${scope.orgs}) ORDER BY org_cash.tx_date DESC, id DESC`;
+  const orgNames = scope.all ? (await sql`SELECT name FROM orgs`).map((x) => x.name) : scope.orgs;
+  const orgs = [...new Set([...orgNames, ...all.map((r) => r.org)])].filter((n) => allows(scope, n)).sort((a, b) => a.localeCompare(b));
   const sp = searchParams || {};
-  const org = orgs.includes(sp.o) ? sp.o : '';
+  const requested = String(sp.o || '').trim();
+  const sole = !scope.all && scope.orgs.length === 1 && allows(scope, scope.orgs[0]) ? scope.orgs[0] : '';
+  const org = sole || (allows(scope, requested) && orgs.includes(requested) ? requested : '');
   const kd = ['in', 'out'].includes(sp.k) ? sp.k : '';
   const inOrg = all.filter((r) => !org || r.org === org);
   const months = [...new Set(inOrg.map((r) => r.tx_date.slice(0, 7)))];
@@ -131,18 +146,21 @@ export default async function Orgs({ searchParams }) {
   const rows = inOrg.filter((r) => (!kd || r.kind === kd) && (!mo || r.tx_date.startsWith(mo)));
   const link = (o, k, m) => `/orgs?${new URLSearchParams({ ...(o ? { o } : {}), ...(k ? { k } : {}), ...(m ? { m } : {}) })}`;
 
-  const scope = inOrg.filter((r) => !mo || r.tx_date.startsWith(mo));
+  const period = inOrg.filter((r) => !mo || r.tx_date.startsWith(mo));
   const opening = org ? inOrg.find((r) => r.category === 'Opening balance') : null;
-  const tin = byCur(scope.filter((r) => r.kind === 'in' && r.category !== 'Opening balance'), (r) => num(r.amount));
-  const tOpen = byCur(scope.filter((r) => r.category === 'Opening balance'), (r) => num(r.amount));
-  const tout = byCur(scope.filter((r) => r.kind === 'out'), (r) => num(r.amount));
-  const bal = byCur(scope, signed);
+  const tin = byCur(period.filter((r) => r.kind === 'in' && r.category !== 'Opening balance'), (r) => num(r.amount));
+  const tOpen = byCur(period.filter((r) => r.category === 'Opening balance'), (r) => num(r.amount));
+  const tout = byCur(period.filter((r) => r.kind === 'out'), (r) => num(r.amount));
+  const bal = byCur(period, signed);
   const orgBal = orgs.map((n) => { const rs = all.filter((r) => r.org === n); return { n, b: byCur(rs, signed), in: byCur(rs.filter((r) => r.kind === 'in'), (r) => num(r.amount)), out: byCur(rs.filter((r) => r.kind === 'out'), (r) => num(r.amount)), cnt: rs.length }; });
   const cats = {};
-  for (const r of scope) { const k = `${r.kind}|${r.category}|${cur2(r)}`; cats[k] = (cats[k] || 0) + num(r.amount); }
+  for (const r of period) { const k = `${r.kind}|${r.category}|${cur2(r)}`; cats[k] = (cats[k] || 0) + num(r.amount); }
   const catList = Object.entries(cats).map(([k, v]) => { const [kind, category, cur] = k.split('|'); return { kind, category, cur, v }; }).sort((a, b) => (a.kind === b.kind ? b.v - a.v : a.kind === 'in' ? -1 : 1));
 
-  const counts = Object.fromEntries((await sql`SELECT org, count(*)::int AS n FROM org_members GROUP BY org`).map((x) => [x.org, x.n]));
+  const counts = Object.fromEntries((scope.all
+    ? await sql`SELECT org, count(*)::int AS n FROM org_members GROUP BY org`
+    : await sql`SELECT org, count(*)::int AS n FROM org_members WHERE org = ANY(${scope.orgs}) GROUP BY org`
+  ).map((x) => [x.org, x.n]));
   const q = String(sp.q || '').trim().toLowerCase();
   const year = Number(sp.y) >= 2000 && Number(sp.y) <= 2100 ? Number(sp.y) : new Date().getFullYear();
   const tab = org && ['members', 'report', 'summary'].includes(sp.t) ? sp.t : 'finance';
@@ -155,7 +173,11 @@ export default async function Orgs({ searchParams }) {
   const paidMap = {};
   if (org) for (const x of await sql`SELECT member_id, year FROM org_renewals WHERE org = ${org}`) (paidMap[x.member_id] = paidMap[x.member_id] || []).push(x.year);
   const memberInfo = org ? (await sql`SELECT id, name FROM org_members WHERE org = ${org} ORDER BY lower(name)`).map((x) => ({ id: x.id, name: x.name, paid: paidMap[x.id] || [] })) : [];
-  const memberNames = (org ? await sql`SELECT DISTINCT name FROM org_members WHERE org = ${org} ORDER BY name` : await sql`SELECT DISTINCT name FROM org_members ORDER BY name`).map((x) => x.name);
+  const memberNames = (org
+    ? await sql`SELECT DISTINCT name FROM org_members WHERE org = ${org} ORDER BY name`
+    : scope.all
+      ? await sql`SELECT DISTINCT name FROM org_members ORDER BY name`
+      : await sql`SELECT DISTINCT name FROM org_members WHERE org = ANY(${scope.orgs}) ORDER BY name`).map((x) => x.name);
   const members = org ? (await sql`SELECT id, name, phone, member_no, email, place, to_char(joined,'YYYY-MM-DD') AS joined, status, notes, blood_group, photo FROM org_members WHERE org = ${org} ORDER BY lower(name)`)
     : [];
   const shown = members.filter((m) => (!q || [m.name, m.phone, m.member_no, m.place].some((v) => String(v).toLowerCase().includes(q))) && (!rf || (rf === 'yes') === !!renewals[m.id]));
@@ -174,7 +196,7 @@ export default async function Orgs({ searchParams }) {
   return (
     <>
       <h1 className="pg-h">{org ? org : T('Organisation cash')}</h1>
-      {org && <p><Link className="doc" href="/orgs">← {T('All organisations')}</Link></p>}
+      {org && (scope.all || scope.orgs.length > 1) && <p><Link className="doc" href="/orgs">← {T('All organisations')}</Link></p>}
       {org && (
         <div className="pur-filter noprint">
           {[['finance', T('Finance')], ['summary', T('Income & expense')], ['members', T('Members')], ['report', T('Renewal report')]].map(([k, l]) => <Link key={k} href={`/orgs?${new URLSearchParams({ o: org, ...(k !== 'finance' ? { t: k } : {}), ...(k === 'members' || k === 'report' ? { y: String(year) } : {}) })}`} className={`chipf ${tab === k ? 'on' : ''}`}>{l}</Link>)}
@@ -331,12 +353,12 @@ export default async function Orgs({ searchParams }) {
       {(!org || tab === 'finance') && <details className="card fold" style={{ '--c': c }} open={all.length === 0 || undefined}>
         <summary className="card-sum"><h2>＋ {T('New entry')}</h2><span className="chev" aria-hidden="true" /></summary>
         <form action={add} className="row entry-form" style={{ marginTop: 10 }}>
-          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} names={org ? memberInfo : memberNames} fee={fee} years={dueYears} />
+          <Fields L={L} orgs={orgs} r={org ? { org } : {}} more={T('More details')} names={org ? memberInfo : memberNames} fee={fee} years={dueYears} canAdd={scope.all} />
           <button className="p">{T('Add entry')}</button>
         </form>
       </details>}
 
-      {!org && (
+      {!org && (scope.all || scope.orgs.length !== 1) && (
         <div className="card" style={{ '--c': c }}>
           <h2>{T('Organisations')}</h2>
           {orgs.length === 0 && <p className="empty">{T('No organisations yet. Add the first entry above.')}</p>}
@@ -479,7 +501,7 @@ export default async function Orgs({ searchParams }) {
                   {r.notes && <p className="ent-note">{r.notes}</p>}
                   <details className="pur-edit">
                     <summary className="doc">{T('Edit')}</summary>
-                    <form action={update} className="row entry-form"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} more={T('More details')} names={memberNames} /><button className="p">{T('Save changes')}</button></form>
+                    <form action={update} className="row entry-form"><input type="hidden" name="id" value={r.id} /><Fields r={r} L={L} orgs={orgs} more={T('More details')} names={memberNames} canAdd={scope.all} /><button className="p">{T('Save changes')}</button></form>
                     <form action={del}><input type="hidden" name="id" value={r.id} /><button className="doc danger">{T('Delete this entry')}</button></form>
                   </details>
                 </div>

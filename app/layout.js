@@ -40,8 +40,8 @@ export default async function Layout({ children }) {
           </form>
           {user && (
             <nav className="nav">
-              {user.role === 'admin' && <Link href="/orgs">{T('Organisations')}</Link>}
-              {user.role === 'admin' && <Link href="/users">{T('Users')}</Link>}
+              {(user.role === 'admin' || user.role === 'owner') && <Link href="/orgs">{T('Organisations')}</Link>}
+              {user.role === 'owner' && <Link href="/users">{T('Users')}</Link>}
               <Link href="/account">{T('Security')}</Link>
               <span className="who">{user.name}</span>
               <form action={logout}><button>{T('Log out')}</button></form>
@@ -49,7 +49,11 @@ export default async function Layout({ children }) {
           )}
         </header>
         <main>{children}</main>
-        {user && user.role === 'admin' && <TabBar tabs={[{ href: '/orgs', icon: 'orgs', label: T('Organisations') }, { href: '/users', icon: 'users', label: T('Users') }]} />}
+        {user && (user.role === 'admin' || user.role === 'owner') && <TabBar tabs={[
+          { href: '/orgs', icon: 'orgs', label: T('Organisations') },
+          ...(user.role === 'owner' ? [{ href: '/users', icon: 'users', label: T('Users') }] : []),
+          { href: '/account', icon: 'held', label: T('Security') },
+        ]} />}
         <PwaRegister />
       </body>
     </html>

@@ -1,21 +1,29 @@
 import { sql, ensureSchema } from '../../../lib/db';
 import { requireAdmin } from '../../../lib/auth';
+import { loadScope, allows, memberInScope } from '../../../lib/access';
 import { T } from '../../../lib/lang';
 import Print from './Print';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Cards({ searchParams }) {
-  await requireAdmin(); await ensureSchema();
-  const id = Number(searchParams?.id) || 0; const o = String(searchParams?.o || '');
-  const list = id
-    ? await sql`SELECT * FROM org_members WHERE id = ${id}`
-    : await sql`SELECT * FROM org_members WHERE org = ${o} ORDER BY lower(name)`;
+  const scope = await loadScope(await requireAdmin()); await ensureSchema();
+  const id = Number(searchParams?.id) || 0; const o = String(searchParams?.o || '').trim();
+  let list = [];
+  if (id) {
+    const m = await memberInScope(scope, id);
+    list = m ? await sql`SELECT * FROM org_members WHERE id = ${m.id} AND org = ${m.org}` : [];
+  } else if (allows(scope, o)) {
+    list = await sql`SELECT * FROM org_members WHERE org = ${o} ORDER BY lower(name)`;
+  } else if (!o && !scope.all && scope.orgs.length === 1 && allows(scope, scope.orgs[0])) {
+    list = await sql`SELECT * FROM org_members WHERE org = ${scope.orgs[0]} ORDER BY lower(name)`;
+  }
   if (!list.length) return <div className="card"><p className="empty">{T('No members yet.')}</p></div>;
   const year = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' }).slice(0, 4);
   const orgs = {};
-  for (const n of [...new Set(list.map((m) => m.org))]) orgs[n] = (await sql`SELECT logo FROM orgs WHERE name = ${n}`)[0]?.logo || '';
-  const paid = new Set((await sql`SELECT member_id FROM org_renewals WHERE year = ${Number(year)} AND member_id = ANY(${list.map((m) => m.id)})`).map((r) => r.member_id));
+  const names = [...new Set(list.map((m) => m.org))].filter((n) => allows(scope, n));
+  for (const n of names) orgs[n] = (await sql`SELECT logo FROM orgs WHERE name = ${n}`)[0]?.logo || '';
+  const paid = new Set((await sql`SELECT member_id FROM org_renewals WHERE year = ${Number(year)} AND org = ANY(${names}) AND member_id = ANY(${list.map((m) => m.id)})`).map((r) => r.member_id));
   return (
     <>
       <Print label={T('Print')} hint={T('Print on A4 at 100% (no scaling). Cut along the border; front and back sit side by side, fold or paste back to back.')} />
