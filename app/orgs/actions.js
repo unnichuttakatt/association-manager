@@ -2,7 +2,6 @@
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '../../lib/auth';
 import { sql, ensureSchema } from '../../lib/db';
-import { loadScope, allows, memberInScope, cashInScope } from '../../lib/access';
 import { parseCsv, readMembers } from '../../lib/stockxl';
 
 const MAX = 4 * 1024 * 1024;
@@ -11,9 +10,7 @@ const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dub
 
 // Records one year's renewal and the matching Cash in entry (Membership fee). Does nothing if that year is already renewed.
 async function doRenew(org, memberId, name, year, amount, date) {
-  const member = (await sql`SELECT id FROM org_members WHERE id = ${memberId} AND org = ${org}`)[0];
-  if (!member) return false;
-  const done = (await sql`SELECT id FROM org_renewals WHERE member_id = ${memberId} AND year = ${year} AND org = ${org}`)[0];
+  const done = (await sql`SELECT id FROM org_renewals WHERE member_id = ${memberId} AND year = ${year}`)[0];
   if (done) return false;
   const cash = (await sql`INSERT INTO org_cash (tx_date, org, kind, category, amount, currency, party, ref)
     VALUES (${date || today()}, ${org}, 'in', 'Membership fee', ${amount}, 'AED', ${name}, ${'Renewal ' + year}) RETURNING id`)[0];
@@ -22,18 +19,13 @@ async function doRenew(org, memberId, name, year, amount, date) {
 }
 const feeOf = async (org) => Number((await sql`SELECT fee FROM orgs WHERE name = ${org}`)[0]?.fee ?? 50);
 const yr = (v) => { const y = Number(v); return y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
-async function actorScope() {
-  const scope = await loadScope(await requireAdmin());
-  await ensureSchema();
-  return scope;
-}
 
 // Cash in > Membership fee: tick the years a member is paying. One renewal + Cash in entry per ticked year, at the organisation's fee.
 export async function payDues(fd) {
-  const scope = await actorScope();
+  await requireAdmin(); await ensureSchema();
   const id = Number(fd.get('member_id')); const years = [...new Set(fd.getAll('pay_year').map(yr))];
   if (!id || !years.length) return false;
-  const m = await memberInScope(scope, id);
+  const m = (await sql`SELECT id, org, name FROM org_members WHERE id = ${id}`)[0];
   if (!m) return false;
   const d = String(fd.get('tx_date') || ''); const fee = await feeOf(m.org);
   for (const y of years.sort()) await doRenew(m.org, m.id, m.name, y, fee, isDate(d) ? d : today());
@@ -43,9 +35,9 @@ export async function payDues(fd) {
 
 // Finance: receive a member's renewal fee on a chosen date. Records the renewal and a Cash in (Membership fee) entry.
 export async function receiveFee(fd) {
-  const scope = await actorScope();
+  await requireAdmin(); await ensureSchema();
   const id = Number(fd.get('member')); const year = yr(fd.get('year'));
-  const m = await memberInScope(scope, id);
+  const m = (await sql`SELECT id, org, name FROM org_members WHERE id = ${id}`)[0];
   if (!m) return;
   const d = String(fd.get('tx_date') || '');
   const amt = Math.round(Math.max(0, Number(fd.get('amount')) || 0) * 100) / 100 || await feeOf(m.org);
@@ -54,43 +46,35 @@ export async function receiveFee(fd) {
 }
 const img = (v, max) => { v = String(v || ''); return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v) && v.length <= max ? v : ''; };
 export async function setLogo(fd) {
-  const scope = await actorScope();
-  const org = String(fd.get('org') || '').trim().slice(0, 120);
-  if (!allows(scope, org)) return;
+  await requireAdmin(); await ensureSchema();
+  const org = String(fd.get('org') || '');
   await sql`UPDATE orgs SET logo = ${img(fd.get('logo'), 200000)} WHERE name = ${org}`;
   revalidatePath('/orgs');
 }
 export async function updateMember(fd) {
-  const scope = await actorScope();
+  await requireAdmin(); await ensureSchema();
   const id = Number(fd.get('id')); const name = String(fd.get('name') || '').trim().slice(0, 120);
-  const m = await memberInScope(scope, id);
-  if (!m || !name) return;
+  if (!id || !name) return;
   const j = String(fd.get('joined') || '');
   const t = (k, n) => String(fd.get(k) || '').trim().slice(0, n);
-  await sql`UPDATE org_members SET name=${name}, phone=${t('phone', 40)}, member_no=${t('member_no', 40)}, place=${t('place', 120)}, joined=${isDate(j) ? j : null}, status=${t('status', 40)}, blood_group=${t('blood_group', 6).toUpperCase()} WHERE id=${m.id} AND org=${m.org}`;
-  if (fd.get('photo_set')) { const ph = img(fd.get('photo'), 60000); await sql`UPDATE org_members SET photo=${ph} WHERE id=${m.id} AND org=${m.org}`; }
+  await sql`UPDATE org_members SET name=${name}, phone=${t('phone', 40)}, member_no=${t('member_no', 40)}, place=${t('place', 120)}, joined=${isDate(j) ? j : null}, status=${t('status', 40)}, blood_group=${t('blood_group', 6).toUpperCase()} WHERE id=${id}`;
+  if (fd.get('photo_set')) { const ph = img(fd.get('photo'), 60000); await sql`UPDATE org_members SET photo=${ph} WHERE id=${id}`; }
   revalidatePath('/orgs');
 }
 export async function undoRenewal(fd) {
-  const scope = await actorScope();
+  await requireAdmin(); await ensureSchema();
   const id = Number(fd.get('id')); const year = yr(fd.get('year'));
-  const m = await memberInScope(scope, id);
-  if (!m) return;
-  const r = (await sql`SELECT id, cash_id, org FROM org_renewals WHERE member_id = ${m.id} AND year = ${year} AND org = ${m.org}`)[0];
+  const r = (await sql`SELECT id, cash_id FROM org_renewals WHERE member_id = ${id} AND year = ${year}`)[0];
   if (!r) return;
-  if (r.cash_id) {
-    const cash = await cashInScope(scope, r.cash_id);
-    if (cash && cash.org === m.org) await sql`DELETE FROM org_cash WHERE id = ${cash.id} AND org = ${cash.org}`;
-  }
-  await sql`DELETE FROM org_renewals WHERE id = ${r.id} AND org = ${m.org}`;
+  if (r.cash_id) await sql`DELETE FROM org_cash WHERE id = ${r.cash_id}`;
+  await sql`DELETE FROM org_renewals WHERE id = ${r.id}`;
   revalidatePath('/orgs');
 }
 export async function setFee(fd) {
-  const scope = await actorScope();
-  const org = String(fd.get('org') || '').trim().slice(0, 120); const fee = Math.max(0, Number(fd.get('fee')) || 0);
-  if (!allows(scope, org)) return;
-  if (scope.all) await sql`INSERT INTO orgs (name, fee) VALUES (${org}, ${fee}) ON CONFLICT (name) DO UPDATE SET fee = ${fee}`;
-  else await sql`UPDATE orgs SET fee = ${fee} WHERE name = ${org}`;
+  await requireAdmin(); await ensureSchema();
+  const org = String(fd.get('org') || '').trim(); const fee = Math.max(0, Number(fd.get('fee')) || 0);
+  if (!org) return;
+  await sql`INSERT INTO orgs (name, fee) VALUES (${org}, ${fee}) ON CONFLICT (name) DO UPDATE SET fee = ${fee}`;
   revalidatePath('/orgs');
 }
 
@@ -98,10 +82,10 @@ const digits = (s) => String(s || '').replace(/\D/g, '');
 
 // Adds every member from an Excel / CSV file. Someone already in the organisation (same name and phone, or same member no.) is updated, not duplicated.
 export async function importMembers(_prev, fd) {
-  const scope = await actorScope();
-  const org = String(fd.get('org') || '').trim().slice(0, 120);
+  await requireAdmin(); await ensureSchema();
+  const org = String(fd.get('org') || '').trim();
   const f = fd.get('sheet');
-  if (!org || !allows(scope, org)) return { error: 'Organisation missing.' };
+  if (!org) return { error: 'Organisation missing.' };
   if (!f || typeof f.arrayBuffer !== 'function' || !f.size) return { error: 'Choose an Excel (.xlsx) or CSV file first.' };
   if (f.size > MAX) return { error: 'File is too large. Maximum 4 MB.' };
   const buf = Buffer.from(await f.arrayBuffer());
@@ -116,7 +100,7 @@ export async function importMembers(_prev, fd) {
   } catch { return { error: 'Could not read this file. Save it as .xlsx or CSV and try again.' }; }
   const res = readMembers(table);
   if (res.error) return { error: res.error };
-  if (scope.all) await sql`INSERT INTO orgs (name) VALUES (${org}) ON CONFLICT (name) DO NOTHING`;
+  await sql`INSERT INTO orgs (name) VALUES (${org}) ON CONFLICT (name) DO NOTHING`;
   const have = await sql`SELECT id, name, phone, member_no FROM org_members WHERE org = ${org}`;
   const year = yr(fd.get('year')); const fee = await feeOf(org);
   let added = 0, updated = 0, renewed = 0;
@@ -124,7 +108,7 @@ export async function importMembers(_prev, fd) {
     const hit = have.find((x) => (m.member_no && x.member_no === m.member_no) || (x.name.toLowerCase() === m.name.toLowerCase() && digits(x.phone) === digits(m.phone)));
     const j = isDate(m.joined) ? m.joined : null;
     if (hit) {
-      await sql`UPDATE org_members SET name=${m.name}, phone=${m.phone || hit.phone}, member_no=${m.member_no || hit.member_no}, email=${m.email}, place=${m.place}, joined=${j}, status=${m.status}, notes=${m.notes} WHERE id=${hit.id} AND org=${org}`;
+      await sql`UPDATE org_members SET name=${m.name}, phone=${m.phone || hit.phone}, member_no=${m.member_no || hit.member_no}, email=${m.email}, place=${m.place}, joined=${j}, status=${m.status}, notes=${m.notes} WHERE id=${hit.id}`;
       updated++;
       if (m.renewed && await doRenew(org, hit.id, m.name, year, fee)) renewed++;
     } else {
@@ -141,13 +125,13 @@ export async function importMembers(_prev, fd) {
 
 // One opening balance per organisation: the cash in hand on a chosen date. Saving again replaces it; an empty amount removes it.
 export async function setOpening(fd) {
-  const scope = await actorScope();
-  const org = String(fd.get('org') || '').trim().slice(0, 120); if (!allows(scope, org)) return;
+  await requireAdmin(); await ensureSchema();
+  const org = String(fd.get('org') || '').trim(); if (!org) return;
   const d = String(fd.get('tx_date') || '');
   const amount = Math.round(Math.max(0, Number(String(fd.get('amount') || '').replace(/,/g, '')) || 0) * 100) / 100;
   await sql`DELETE FROM org_cash WHERE org = ${org} AND category = 'Opening balance'`;
   if (amount > 0) {
-    if (scope.all) await sql`INSERT INTO orgs (name) VALUES (${org}) ON CONFLICT (name) DO NOTHING`;
+    await sql`INSERT INTO orgs (name) VALUES (${org}) ON CONFLICT (name) DO NOTHING`;
     await sql`INSERT INTO org_cash (tx_date, org, kind, category, amount, currency, party, ref)
       VALUES (${isDate(d) ? d : today()}, ${org}, 'in', 'Opening balance', ${amount}, ${String(fd.get('currency')) === 'INR' ? 'INR' : 'AED'}, '', 'Opening balance')`;
   }

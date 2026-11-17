@@ -16,7 +16,7 @@ export default function Login({ searchParams }) {
         && password === process.env.ADMIN_PASSWORD && password) {
       const hash = await bcrypt.hash(password, 10);
       await sql`INSERT INTO users (email, name, password_hash, role, sections)
-                VALUES (${email}, 'Admin', ${hash}, 'owner', ${[]})`;
+                VALUES (${email}, 'Admin', ${hash}, 'admin', ${[]})`;
     }
     const u = (await sql`SELECT id, password_hash, login_locked FROM users WHERE email = ${email}`)[0];
     if (u?.login_locked && new Date(u.login_locked) > new Date()) redirect('/login?error=locked');
