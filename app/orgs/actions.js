@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '../../lib/auth';
 import { sql, ensureSchema } from '../../lib/db';
 import { parseCsv, readMembers } from '../../lib/stockxl';
+import { T } from '../../lib/lang';
 
 const MAX = 4 * 1024 * 1024;
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
@@ -85,9 +86,9 @@ export async function importMembers(_prev, fd) {
   await requireAdmin(); await ensureSchema();
   const org = String(fd.get('org') || '').trim();
   const f = fd.get('sheet');
-  if (!org) return { error: 'Organisation missing.' };
-  if (!f || typeof f.arrayBuffer !== 'function' || !f.size) return { error: 'Choose an Excel (.xlsx) or CSV file first.' };
-  if (f.size > MAX) return { error: 'File is too large. Maximum 4 MB.' };
+  if (!org) return { error: T('Organisation missing.') };
+  if (!f || typeof f.arrayBuffer !== 'function' || !f.size) return { error: T('Choose an Excel (.xlsx) or CSV file first.') };
+  if (f.size > MAX) return { error: T('File is too large. Maximum 4 MB.') };
   const buf = Buffer.from(await f.arrayBuffer());
   let table;
   try {
@@ -95,11 +96,11 @@ export async function importMembers(_prev, fd) {
       const readXlsxFile = (await import('read-excel-file/node')).default;
       table = (await readXlsxFile(buf)).map((r) => r.map((c) => (c instanceof Date ? c.toISOString().slice(0, 10) : c ?? '')));
     } else if (/\.xls$/i.test(f.name || '') || buf.slice(0, 4).toString('hex') === 'd0cf11e0') {
-      return { error: 'Old .xls files are not supported. Open it in Excel and use Save As → .xlsx (or CSV).' };
+      return { error: T('Old .xls files are not supported. Open it in Excel and use Save As → .xlsx (or CSV).') };
     } else table = parseCsv(buf.toString('utf8').replace(/^﻿/, ''));
-  } catch { return { error: 'Could not read this file. Save it as .xlsx or CSV and try again.' }; }
+  } catch { return { error: T('Could not read this file. Save it as .xlsx or CSV and try again.') }; }
   const res = readMembers(table);
-  if (res.error) return { error: res.error };
+  if (res.error) return { error: T(res.error) };
   await sql`INSERT INTO orgs (name) VALUES (${org}) ON CONFLICT (name) DO NOTHING`;
   const have = await sql`SELECT id, name, phone, member_no FROM org_members WHERE org = ${org}`;
   const year = yr(fd.get('year')); const fee = await feeOf(org);

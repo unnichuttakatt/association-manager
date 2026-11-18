@@ -445,7 +445,7 @@ export default async function Orgs({ searchParams }) {
             {rf !== 'yes' && <h3>⏳ {T('Not renewed')} ({pend.length})</h3>}
             {rf !== 'yes' && (pend.length === 0 ? <p className="empty">{T('Everyone has renewed.')}</p> : (
               <div className="scroll"><table><thead><tr><th>#</th><th>{T('Name')}</th><th>{T('Phone')}</th><th className="noprint"></th></tr></thead>
-                <tbody>{pend.map((m, i) => { const w = waLink(m.phone, T('Hello {name}, a gentle reminder from {org}: your {y} membership renewal fee of AED {fee} is still pending. Please pay at your earliest convenience. Thank you.', { name: m.name, org, y: year, fee: fmt(fee) })); return <tr key={m.id}><td>{i + 1}</td><td>{m.name}</td><td>{m.phone}</td><td className="noprint">{w ? <a className="wa" href={w} target="_blank" rel="noreferrer">💬 WhatsApp</a> : ''}</td></tr>; })}</tbody></table></div>
+                <tbody>{pend.map((m, i) => { const w = waLink(m.phone, T('Hello {name}, a gentle reminder from {org}: your {y} membership renewal fee of AED {fee} is still pending. Please pay at your earliest convenience. Thank you.', { name: m.name, org, y: year, fee: fmt(fee) })); return <tr key={m.id}><td>{i + 1}</td><td>{m.name}</td><td>{m.phone}</td><td className="noprint">{w ? <a className="wa" href={w} target="_blank" rel="noreferrer">💬 {T('WhatsApp')}</a> : ''}</td></tr>; })}</tbody></table></div>
             ))}
           </div>
         );

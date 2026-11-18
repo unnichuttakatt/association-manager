@@ -49,7 +49,7 @@ export default async function Layout({ children }) {
           )}
         </header>
         <main>{children}</main>
-        {user && user.role === 'admin' && <TabBar tabs={[{ href: '/orgs', icon: 'orgs', label: T('Organisations') }, { href: '/users', icon: 'users', label: T('Users') }]} />}
+        {user && user.role === 'admin' && <TabBar label={T('Main')} tabs={[{ href: '/orgs', icon: 'orgs', label: T('Organisations') }, { href: '/users', icon: 'users', label: T('Users') }]} />}
         <PwaRegister />
       </body>
     </html>

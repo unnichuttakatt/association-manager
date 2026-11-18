@@ -89,22 +89,22 @@ export default async function Account({ searchParams }) {
 
       {r.totp_enabled ? (
         <>
-          <p className="sum">Google Authenticator is on for {me.email}.</p>
+          <p className="sum">{T('Google Authenticator is on for {email}.', { email: me.email })}</p>
           <form action={disable}>
-            <p className="sum">To turn it off, enter your password and a current code.</p>
+            <p className="sum">{T('To turn it off, enter your password and a current code.')}</p>
             <input name="password" type="password" placeholder={T('Password')} required style={{width:'100%'}} />
-            <input name="code" inputMode="numeric" placeholder="6-digit code" required style={{width:'100%'}} />
+            <input name="code" inputMode="numeric" placeholder={T('6-digit code')} required style={{width:'100%'}} />
             <button className="d" style={{marginTop:8}}>{T('Turn off authenticator')}</button>
           </form>
         </>
       ) : qr ? (
         <>
-          <p className="sum">1. In Google Authenticator tap + then Scan a QR code, and scan this.</p>
+          <p className="sum">{T('1. In Google Authenticator tap + then Scan a QR code, and scan this.')}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt="QR code for Google Authenticator" width={220} height={220} />
-          <p className="sum">Can't scan? Choose Enter a setup key and type: <b style={{wordBreak:'break-all'}}>{secret}</b></p>
+          <img src={qr} alt={T('QR code for Google Authenticator')} width={220} height={220} />
+          <p className="sum">{T("Can't scan? Choose Enter a setup key and type:")} <b style={{wordBreak:'break-all'}}>{secret}</b></p>
           <form action={confirm}>
-            <p className="sum">2. Enter the 6-digit code the app shows to finish.</p>
+            <p className="sum">{T('2. Enter the 6-digit code the app shows to finish.')}</p>
             <input name="code" inputMode="numeric" autoComplete="one-time-code" placeholder="123456" required style={{width:'100%'}} />
             <button className="p" style={{marginTop:8}}>{T('Turn on authenticator')}</button>
           </form>
